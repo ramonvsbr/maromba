@@ -2,7 +2,7 @@
   "name": "Maromba — controle de treino",
   "short_name": "Maromba",
   "description": "Webapp de treino de academia, 100% local.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",

@@ -20,7 +20,7 @@
    'activate' a descartar o cache antigo e o 'install' a baixar tudo de
    novo). Se só um dos dois for atualizado, o navegador pode acabar
    comparando um HTML novo com JS/CSS velhos (ou vice-versa). */
-const APP_VERSION = '4';
+const APP_VERSION = '5';
 const CACHE_NAME = `maromba-cache-v${APP_VERSION}`;
 const ARQUIVOS_ESTATICOS = [
   './',
@@ -92,12 +92,24 @@ self.addEventListener('fetch', event => {
       // (sem .catch(() => undefined)) pra, se ela falhar, o navegador
       // receber o erro de rede de verdade em vez de um respondWith(undefined)
       // — que é o que gera aquele "ERR_FAILED" genérico na tela.
-      return fetch(event.request).then(resp => {
-        if (resp && resp.status === 200) {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      return fetch(event.request).then(async resp => {
+        // Se o host redirecionou (ex.: "/index.html" -> "/" numa URL
+        // canônica sem index.html), o Chrome recusa aceitar essa resposta
+        // "redirecionada" pra uma navegação — dá exatamente esse mesmo
+        // ERR_FAILED. Recriamos a resposta (mesmo corpo/status/headers) pra
+        // "descolar" ela da URL original e o navegador aceitar numa boa.
+        const respFinal = resp.redirected
+          ? new Response(await resp.clone().blob(), {
+              status: resp.status,
+              statusText: resp.statusText,
+              headers: resp.headers,
+            })
+          : resp;
+
+        if (respFinal.status === 200) {
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, respFinal.clone()));
         }
-        return resp;
+        return respFinal;
       });
     })
   );
