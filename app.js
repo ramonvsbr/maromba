@@ -198,8 +198,7 @@ const CONFIG_MOUNT = document.getElementById('config-mount');
 const MODAL_MONTAR = document.getElementById('modal-montar');
 const MODAL_CONFIG = document.getElementById('modal-config');
 
-let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico'
-let configTab = 'equipamentos';           // 'equipamentos' | 'exercicios' (dentro do modal de ajustes)
+let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'equipamentos' | 'exercicios'
 let draftTreino = null;                   // treino sendo montado/editado
 let musculosAlvoMontagem = new Set();     // grupos musculares marcados na tela "montar treino"
 let filtroMusculo = 'todos';
@@ -227,6 +226,8 @@ function render() {
     case 'meus-treinos': renderMeusTreinos(); break;
     case 'sessao': renderSessao(); break;
     case 'historico': renderHistorico(); break;
+    case 'equipamentos': renderEquipamentos(); break;
+    case 'exercicios': renderExercicios(); break;
     default: renderMeusTreinos();
   }
 }
@@ -249,31 +250,21 @@ function openMontar() {
 function closeMontar() {
   MODAL_MONTAR.hidden = true;
 }
-function openConfig(tab) {
-  if (tab) configTab = tab;
+function openConfig() {
   MODAL_CONFIG.hidden = false;
-  updateConfigTabButtons();
-  renderConfigContent();
+  renderDados();
 }
 function closeConfig() {
   MODAL_CONFIG.hidden = true;
 }
-function updateConfigTabButtons() {
-  document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.configTab === configTab));
-}
-function renderConfigContent() {
-  if (configTab === 'exercicios') renderExercicios();
-  else if (configTab === 'dados') renderDados();
-  else renderEquipamentos();
-}
 
-// ================= EQUIPAMENTOS (dentro de Ajustes) =================
+// ================= EQUIPAMENTOS =================
 function renderEquipamentos() {
   const selected = new Set(getEquip());
-  CONFIG_MOUNT.innerHTML = `
-    <section>
-      <h2>Equipamentos da academia</h2>
-      <p class="sub">Marque o que você tem disponível. Isso define quais exercícios aparecem pra montar treino.</p>
+  APP.innerHTML = `
+    <section class="panel">
+      <h1>Equipamentos</h1>
+      <p class="sub">Marque o que você tem disponível na academia. Isso define quais exercícios aparecem pra montar treino.</p>
       <div class="actions-row">
         <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
         <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
@@ -289,7 +280,7 @@ function renderEquipamentos() {
       <div id="equip-saved" class="saved-flag" hidden>Salvo ✓</div>
     </section>`;
 
-  CONFIG_MOUNT.querySelectorAll('[data-equip]').forEach(input => {
+  APP.querySelectorAll('[data-equip]').forEach(input => {
     input.addEventListener('change', () => {
       const set = new Set(getEquip());
       if (input.checked) set.add(input.dataset.equip); else set.delete(input.dataset.equip);
@@ -317,8 +308,6 @@ function renderEquipamentos() {
 function renderDados() {
   CONFIG_MOUNT.innerHTML = `
     <section>
-      <h2>Backup dos dados</h2>
-      <p class="sub">Tudo fica salvo só neste navegador. Exporte de vez em quando pra ter uma cópia, ou pra levar seus treinos e histórico pra outro aparelho/navegador.</p>
       <p class="hint">
         Hoje: ${getEquip().length} equipamento(s) marcado(s), ${getTreinos().length} treino(s) montado(s),
         ${getHistorico().length} sessão(ões) no histórico${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
@@ -412,7 +401,7 @@ function importarDados(file) {
   reader.readAsText(file);
 }
 
-// ================= EXERCÍCIOS (dentro de Ajustes) =================
+// ================= EXERCÍCIOS =================
 function renderExercicios() {
   const equipSet = new Set(getEquip());
   let lista = EXERCISES.filter(ex =>
@@ -421,9 +410,9 @@ function renderExercicios() {
   if (somenteDisponiveis) lista = lista.filter(ex => exerciseAvailable(ex, equipSet));
   lista = lista.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  CONFIG_MOUNT.innerHTML = `
-    <section>
-      <h2>Biblioteca de exercícios</h2>
+  APP.innerHTML = `
+    <section class="panel">
+      <h1>Biblioteca de exercícios</h1>
       <p class="sub">Veja o que dá pra fazer com o que sua academia tem. Pra montar um treino de verdade, use o botão + em "Meus treinos".</p>
       <div class="filters-row">
         <select id="f-musculo">
@@ -442,7 +431,7 @@ function renderExercicios() {
 
   document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderExercicios(); });
   document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderExercicios(); });
-  CONFIG_MOUNT.querySelectorAll('.ex-card').forEach(card => {
+  APP.querySelectorAll('.ex-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.dataset.id;
       exercicioAberto = exercicioAberto === id ? null : id;
@@ -1174,16 +1163,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('fab-add').addEventListener('click', openMontarNovo);
   document.getElementById('btn-close-montar').addEventListener('click', closeMontar);
-  document.getElementById('btn-config').addEventListener('click', () => openConfig('equipamentos'));
+  document.getElementById('btn-config').addEventListener('click', openConfig);
   document.getElementById('btn-close-config').addEventListener('click', closeConfig);
-
-  document.querySelectorAll('.config-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      configTab = btn.dataset.configTab;
-      updateConfigTabButtons();
-      renderConfigContent();
-    });
-  });
 
   MODAL_MONTAR.addEventListener('click', e => { if (e.target === MODAL_MONTAR) closeMontar(); });
   MODAL_CONFIG.addEventListener('click', e => { if (e.target === MODAL_CONFIG) closeConfig(); });
