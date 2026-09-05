@@ -238,6 +238,17 @@ svg{ display:block; }
 .config-tab-btn:hover{ color: var(--text); }
 .config-tab-btn.active{ color: var(--chalk); border-bottom-color: var(--chalk); }
 
+/* ---------- confirmação (substitui confirm() nativo) ---------- */
+.modal-panel-sm{ max-width: 380px; padding: 26px 26px 24px; }
+.confirm-overlay{ z-index: 300; align-items:center; }
+.confirm-msg{ font-size: 15px; margin: 4px 0 4px; }
+.confirm-actions{ margin-top: 18px; }
+.confirm-actions .btn{ flex:1; justify-content:center; }
+
+/* ---------- dados / backup ---------- */
+.backup-actions{ display:flex; gap:10px; flex-wrap:wrap; margin: 14px 0 6px; }
+.backup-note{ margin-top: 14px; }
+
 /* ---------- equipamentos ---------- */
 .equip-grid{
   display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr));
@@ -312,7 +323,18 @@ input[type=number]{ width: 78px; font-family: var(--font-mono); }
 
 .draft-list{ display:flex; flex-direction:column; gap:10px; margin: 14px 0; }
 .draft-row{ background: var(--surface-2); border:1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.draft-row.draft-row-reorderable{ display:flex; gap:10px; align-items:flex-start; }
+.draft-row-body{ flex:1; min-width:0; }
 .draft-row-head{ display:flex; justify-content:space-between; align-items:center; }
+.reorder-btns{ display:flex; flex-direction:column; gap:4px; flex-shrink:0; }
+.btn-reorder{
+  background: var(--surface-3); border:1px solid var(--line); color: var(--text-muted);
+  width:24px; height:22px; border-radius: var(--radius); cursor:pointer; line-height:1;
+  display:flex; align-items:center; justify-content:center; padding:0;
+}
+.btn-reorder:hover:not(:disabled){ border-color: var(--chalk); color: var(--chalk); }
+.btn-reorder:disabled{ opacity:.3; cursor:not-allowed; }
+.btn-reorder svg{ width:13px; height:13px; }
 .btn-remove{
   background:none; border: 1px solid var(--line); color: var(--text-muted);
   width:24px; height:24px; border-radius: var(--radius); cursor:pointer; line-height:1;
@@ -350,6 +372,8 @@ input[type=number]{ width: 78px; font-family: var(--font-mono); }
 .sessao-top{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:10px; }
 .sessao-meta{ display:flex; gap:16px; color: var(--text-muted); font-size:14px; }
 .sessao-meta .mono{ color: var(--chalk); font-weight:700; }
+.wakelock-badge{ font-size:11px; color: var(--text-faint); display:inline-flex; align-items:center; gap:4px; }
+.wakelock-badge .icon{ width:12px; height:12px; }
 .sessao-grid{ display:flex; gap:26px; margin-top:20px; flex-wrap: wrap; }
 .sessao-info{ flex:1; min-width: 260px; }
 

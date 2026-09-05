@@ -4,6 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Maromba — controle de treino</title>
+  <meta name="theme-color" content="#101113"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Maromba"/>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="icon" href="icons/icon-192.png"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
@@ -66,10 +74,23 @@
       <div class="config-tabs">
         <button class="config-tab-btn active" data-config-tab="equipamentos">Equipamentos</button>
         <button class="config-tab-btn" data-config-tab="exercicios">Exercícios</button>
+        <button class="config-tab-btn" data-config-tab="dados">Dados</button>
       </div>
       <div id="config-mount"></div>
     </div>
   </div>
+
+  <div id="modal-confirm" class="modal-overlay confirm-overlay" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <p id="confirm-msg" class="confirm-msg"></p>
+      <div class="actions-row confirm-actions">
+        <button id="btn-confirm-ok" class="btn btn-danger">Confirmar</button>
+        <button id="btn-confirm-cancel" class="btn btn-ghost">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="input-importar-json" accept="application/json" hidden/>
 
   <script src="data.js"></script>
   <script src="bodymap.js"></script>

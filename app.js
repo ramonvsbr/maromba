@@ -101,6 +101,95 @@ function toast(msg) {
 const ICON_PLAY = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 4l14 8-14 8V4z" fill="currentColor" stroke="none"/></svg>';
 const ICON_EDIT = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+const ICON_UP = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
+const ICON_DOWN = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>';
+const ICON_DOWNLOAD = '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>';
+const ICON_UPLOAD = '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 4h16"/></svg>';
+
+// ---------- modal de confirmação (substitui confirm() nativo) ----------
+function showConfirm(message, onConfirm, opts = {}) {
+  const modal = document.getElementById('modal-confirm');
+  const msgEl = document.getElementById('confirm-msg');
+  const btnOk = document.getElementById('btn-confirm-ok');
+  const btnCancel = document.getElementById('btn-confirm-cancel');
+  msgEl.textContent = message;
+  btnOk.textContent = opts.okLabel || 'Confirmar';
+  btnOk.className = 'btn ' + (opts.okClass || 'btn-danger');
+  modal.hidden = false;
+
+  function cleanup() {
+    modal.hidden = true;
+    btnOk.removeEventListener('click', onOk);
+    btnCancel.removeEventListener('click', onCancel);
+    modal.removeEventListener('click', onOverlay);
+  }
+  function onOk() { cleanup(); onConfirm(); }
+  function onCancel() { cleanup(); }
+  function onOverlay(e) { if (e.target === modal) onCancel(); }
+  btnOk.addEventListener('click', onOk);
+  btnCancel.addEventListener('click', onCancel);
+  modal.addEventListener('click', onOverlay);
+}
+
+// ---------- áudio do fim de descanso ----------
+// O AudioContext precisa nascer dentro de um gesto do usuário pra não ficar
+// suspenso; criamos ele uma única vez no primeiro toque/clique na página e
+// reaproveitamos depois, mesmo quando o beep dispara de um setInterval.
+let audioCtx = null;
+function ensureAudioCtx() {
+  if (audioCtx) return audioCtx;
+  const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtxClass) return null;
+  try { audioCtx = new AudioCtxClass(); } catch (e) { audioCtx = null; }
+  return audioCtx;
+}
+document.addEventListener('pointerdown', ensureAudioCtx, { once: true });
+
+function tocarBip(freq, inicioMs, duracaoMs) {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  setTimeout(() => {
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t0 = ctx.currentTime;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.35, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duracaoMs / 1000);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duracaoMs / 1000 + 0.02);
+    } catch (e) { /* silencioso */ }
+  }, inicioMs);
+}
+function alertaFimDescanso() {
+  try { if (navigator.vibrate) navigator.vibrate([180, 90, 180]); } catch (e) { /* silencioso */ }
+  tocarBip(880, 0, 260);
+  tocarBip(1175, 220, 260);
+}
+
+// ---------- Screen Wake Lock (mantém a tela acesa durante o treino) ----------
+let wakeLock = null;
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator) || wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) {
+    wakeLock = null; // ex.: aba em segundo plano — sem problema, tentamos de novo ao voltar
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentTab === 'sessao' && getSessaoAtiva()) {
+    requestWakeLock();
+  }
+});
 
 // ---------- estado de navegação ----------
 const APP = document.getElementById('app');
@@ -132,7 +221,7 @@ function render() {
   const ativaBtn = document.querySelector('.nav-btn[data-tab="sessao"]');
   if (ativaBtn) ativaBtn.classList.toggle('has-live', !!getSessaoAtiva());
 
-  if (currentTab !== 'sessao') clearSessaoTimers();
+  if (currentTab !== 'sessao') { clearSessaoTimers(); releaseWakeLock(); }
 
   switch (currentTab) {
     case 'meus-treinos': renderMeusTreinos(); break;
@@ -173,7 +262,9 @@ function updateConfigTabButtons() {
   document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.configTab === configTab));
 }
 function renderConfigContent() {
-  if (configTab === 'exercicios') renderExercicios(); else renderEquipamentos();
+  if (configTab === 'exercicios') renderExercicios();
+  else if (configTab === 'dados') renderDados();
+  else renderEquipamentos();
 }
 
 // ================= EQUIPAMENTOS (dentro de Ajustes) =================
@@ -220,6 +311,105 @@ function renderEquipamentos() {
     renderEquipamentos();
     toast('Todos desmarcados');
   });
+}
+
+// ================= DADOS / BACKUP (dentro de Ajustes) =================
+function renderDados() {
+  CONFIG_MOUNT.innerHTML = `
+    <section>
+      <h2>Backup dos dados</h2>
+      <p class="sub">Tudo fica salvo só neste navegador. Exporte de vez em quando pra ter uma cópia, ou pra levar seus treinos e histórico pra outro aparelho/navegador.</p>
+      <p class="hint">
+        Hoje: ${getEquip().length} equipamento(s) marcado(s), ${getTreinos().length} treino(s) montado(s),
+        ${getHistorico().length} sessão(ões) no histórico${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
+      </p>
+      <div class="backup-actions">
+        <button id="btn-exportar-dados" class="btn btn-accent">${ICON_DOWNLOAD}Exportar backup (.json)</button>
+        <button id="btn-importar-dados" class="btn btn-ghost">${ICON_UPLOAD}Importar backup (.json)</button>
+      </div>
+      <p class="hint backup-note">Importar um arquivo <strong>substitui</strong> todos os dados atuais deste navegador (equipamentos, treinos, histórico e sessão em andamento).</p>
+    </section>`;
+
+  document.getElementById('btn-exportar-dados').addEventListener('click', exportarDados);
+  document.getElementById('btn-importar-dados').addEventListener('click', () => {
+    document.getElementById('input-importar-json').click();
+  });
+}
+
+function exportarDados() {
+  const payload = {
+    app: 'maromba',
+    versao: 1,
+    exportadoEm: new Date().toISOString(),
+    dados: {
+      equipamentos: getEquip(),
+      treinos: getTreinos(),
+      historico: getHistorico(),
+      sessaoAtiva: getSessaoAtiva(),
+    },
+  };
+  try {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maromba-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Backup exportado!');
+  } catch (e) {
+    console.warn('Falha ao exportar', e);
+    toast('Não foi possível gerar o arquivo de backup.');
+  }
+}
+
+// aceita tanto o formato do botão "Exportar" quanto o JSON colado manualmente
+// via console (ver README) — nesse caso os campos vêm como string, não array.
+function normalizarCampoImportado(v) {
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch (e) { return null; }
+  }
+  return v;
+}
+
+function importarDados(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let payload;
+    try {
+      payload = JSON.parse(reader.result);
+    } catch (e) {
+      toast('Arquivo inválido: não é um JSON legível.');
+      return;
+    }
+    const bruto = (payload && typeof payload === 'object' && payload.dados) ? payload.dados : payload;
+    if (!bruto || typeof bruto !== 'object') {
+      toast('Arquivo não reconhecido como backup do Maromba.');
+      return;
+    }
+    const equipamentos = normalizarCampoImportado(bruto.equipamentos);
+    const treinos = normalizarCampoImportado(bruto.treinos);
+    const historico = normalizarCampoImportado(bruto.historico);
+    if (!Array.isArray(equipamentos) && !Array.isArray(treinos) && !Array.isArray(historico)) {
+      toast('Nenhum dado reconhecido nesse arquivo.');
+      return;
+    }
+
+    showConfirm('Importar vai substituir todos os dados atuais (equipamentos, treinos e histórico) por este arquivo. Continuar?', () => {
+      if (Array.isArray(equipamentos)) setEquip(equipamentos);
+      if (Array.isArray(treinos)) setTreinos(treinos);
+      if (Array.isArray(historico)) setHistorico(historico);
+      if ('sessaoAtiva' in bruto) setSessaoAtiva(normalizarCampoImportado(bruto.sessaoAtiva) || bruto.sessaoAtiva || null);
+      toast('Dados importados com sucesso!');
+      closeConfig();
+      currentTab = getSessaoAtiva() ? 'sessao' : 'meus-treinos';
+      render();
+    }, { okLabel: 'Importar e substituir' });
+  };
+  reader.onerror = () => toast('Não foi possível ler o arquivo.');
+  reader.readAsText(file);
 }
 
 // ================= EXERCÍCIOS (dentro de Ajustes) =================
@@ -365,7 +555,7 @@ function renderMontarTreino() {
 
       <div class="draft-list">
         ${draftTreino.exercicios.length
-          ? draftTreino.exercicios.map((cfg, i) => draftRowHTML(cfg, i)).join('')
+          ? draftTreino.exercicios.map((cfg, i, arr) => draftRowHTML(cfg, i, arr.length)).join('')
           : '<p class="empty">Nenhum exercício adicionado ainda.</p>'}
       </div>
 
@@ -420,6 +610,25 @@ function renderMontarTreino() {
     });
   });
 
+  MONTAR_MOUNT.querySelectorAll('[data-move-up]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.moveUp);
+      if (idx <= 0) return;
+      const arr = draftTreino.exercicios;
+      [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+      renderMontarTreino();
+    });
+  });
+  MONTAR_MOUNT.querySelectorAll('[data-move-down]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.moveDown);
+      const arr = draftTreino.exercicios;
+      if (idx >= arr.length - 1) return;
+      [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
+      renderMontarTreino();
+    });
+  });
+
   MONTAR_MOUNT.querySelectorAll('[data-field]').forEach(input => {
     input.addEventListener('input', () => {
       const idx = Number(input.dataset.idx), field = input.dataset.field;
@@ -438,20 +647,26 @@ function renderMontarTreino() {
   });
 }
 
-function draftRowHTML(cfg, i) {
+function draftRowHTML(cfg, i, total) {
   const ex = exerciseById(cfg.exercicioId);
   return `
-    <div class="draft-row">
-      <div class="draft-row-head">
-        <span class="ex-nome">${ex.nome}</span>
-        <button class="btn-remove" data-remove-idx="${i}" title="Remover">✕</button>
+    <div class="draft-row draft-row-reorderable">
+      <div class="reorder-btns">
+        <button class="btn-reorder" data-move-up="${i}" title="Mover para cima" ${i === 0 ? 'disabled' : ''}>${ICON_UP}</button>
+        <button class="btn-reorder" data-move-down="${i}" title="Mover para baixo" ${i === total - 1 ? 'disabled' : ''}>${ICON_DOWN}</button>
       </div>
-      <div class="chip-row">${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
-      <div class="draft-fields">
-        <label>Séries<input type="number" min="1" data-idx="${i}" data-field="series" value="${cfg.series}"/></label>
-        <label>Repetições<input type="number" min="1" data-idx="${i}" data-field="repeticoes" value="${cfg.repeticoes}"/></label>
-        <label>Peso (kg)<input type="number" min="0" step="0.5" data-idx="${i}" data-field="peso" value="${cfg.peso}"/></label>
-        <label>Pausa (s)<input type="number" min="0" step="5" data-idx="${i}" data-field="pausa" value="${cfg.pausa}"/></label>
+      <div class="draft-row-body">
+        <div class="draft-row-head">
+          <span class="ex-nome">${ex.nome}</span>
+          <button class="btn-remove" data-remove-idx="${i}" title="Remover">✕</button>
+        </div>
+        <div class="chip-row">${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
+        <div class="draft-fields">
+          <label>Séries<input type="number" min="1" data-idx="${i}" data-field="series" value="${cfg.series}"/></label>
+          <label>Repetições<input type="number" min="1" data-idx="${i}" data-field="repeticoes" value="${cfg.repeticoes}"/></label>
+          <label>Peso (kg)<input type="number" min="0" step="0.5" data-idx="${i}" data-field="peso" value="${cfg.peso}"/></label>
+          <label>Pausa (s)<input type="number" min="0" step="5" data-idx="${i}" data-field="pausa" value="${cfg.pausa}"/></label>
+        </div>
       </div>
     </div>`;
 }
@@ -541,10 +756,11 @@ function renderMeusTreinos() {
     if (t) openMontarEditar(t);
   }));
   APP.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
-    if (!confirm('Excluir este treino?')) return;
-    setTreinos(getTreinos().filter(x => x.id !== b.dataset.del));
-    render();
-    toast('Treino excluído.');
+    showConfirm('Excluir este treino?', () => {
+      setTreinos(getTreinos().filter(x => x.id !== b.dataset.del));
+      render();
+      toast('Treino excluído.');
+    });
   }));
 }
 
@@ -569,42 +785,47 @@ function treinoCardHTML(t) {
 
 // ================= SESSÃO ATIVA =================
 function iniciarSessao(treinoId) {
-  const ativa = getSessaoAtiva();
-  if (ativa) {
-    if (!confirm('Já existe um treino em andamento. Descartar e iniciar um novo?')) return;
-  }
-  const t = getTreinos().find(x => x.id === treinoId);
-  if (!t) return;
-  const sessao = {
-    id: uid(),
-    treinoId: t.id,
-    treinoNome: t.nome,
-    data: todayISO(),
-    iniciadoEm: Date.now(),
-    exercicioAtualIdx: 0,
-    exercicios: t.exercicios.map(cfg => ({
-      exercicioId: cfg.exercicioId,
-      seriesAlvo: cfg.series,
-      repeticoesAlvo: cfg.repeticoes,
-      pesoAlvo: cfg.peso,
-      pausa: cfg.pausa,
-      sets: [],
-    })),
-    estimadoSegundos: estimateTreinoSeconds(t.exercicios),
-    pausaAte: null,
+  const disparar = () => {
+    const t = getTreinos().find(x => x.id === treinoId);
+    if (!t) return;
+    const sessao = {
+      id: uid(),
+      treinoId: t.id,
+      treinoNome: t.nome,
+      data: todayISO(),
+      iniciadoEm: Date.now(),
+      exercicioAtualIdx: 0,
+      exercicios: t.exercicios.map(cfg => ({
+        exercicioId: cfg.exercicioId,
+        seriesAlvo: cfg.series,
+        repeticoesAlvo: cfg.repeticoes,
+        pesoAlvo: cfg.peso,
+        pausa: cfg.pausa,
+        sets: [],
+      })),
+      estimadoSegundos: estimateTreinoSeconds(t.exercicios),
+      pausaAte: null,
+    };
+    setSessaoAtiva(sessao);
+    currentTab = 'sessao';
+    render();
   };
-  setSessaoAtiva(sessao);
-  currentTab = 'sessao';
-  render();
+  if (getSessaoAtiva()) {
+    showConfirm('Já existe um treino em andamento. Descartar e iniciar um novo?', disparar);
+  } else {
+    disparar();
+  }
 }
 
 function renderSessao() {
   clearSessaoTimers();
   const sessao = getSessaoAtiva();
   if (!sessao) {
+    releaseWakeLock();
     APP.innerHTML = `<section class="panel"><h1>Treino ativo</h1><p class="empty">Nenhum treino em andamento. Vá em "Meus treinos" e clique em Iniciar.</p></section>`;
     return;
   }
+  requestWakeLock();
   const idx = sessao.exercicioAtualIdx;
   if (idx >= sessao.exercicios.length) { renderSessaoResumoFinal(sessao); return; }
 
@@ -621,6 +842,7 @@ function renderSessao() {
         <div class="sessao-meta">
           <span>Exercício ${idx + 1} de ${sessao.exercicios.length}</span>
           <span id="tempo-decorrido" class="mono"></span>
+          ${'wakeLock' in navigator ? '<span class="wakelock-badge" title="A tela fica acesa enquanto você treina">tela sempre ativa</span>' : ''}
         </div>
       </div>
 
@@ -694,6 +916,7 @@ function renderSessao() {
       if (rest <= 0) {
         sessao.pausaAte = null;
         setSessaoAtiva(sessao);
+        alertaFimDescanso();
         render();
       }
     };
@@ -728,18 +951,21 @@ function renderSessao() {
   });
 
   document.getElementById('btn-pular-exercicio').addEventListener('click', () => {
-    if (!confirm('Pular este exercício sem completar todas as séries?')) return;
-    sessao.exercicioAtualIdx += 1;
-    sessao.pausaAte = null;
-    setSessaoAtiva(sessao);
-    render();
+    showConfirm('Pular este exercício sem completar todas as séries?', () => {
+      sessao.exercicioAtualIdx += 1;
+      sessao.pausaAte = null;
+      setSessaoAtiva(sessao);
+      render();
+    });
   });
 
   document.getElementById('btn-abandonar').addEventListener('click', () => {
-    if (!confirm('Abandonar a sessão atual? O progresso não será salvo no histórico.')) return;
-    clearSessaoTimers();
-    setSessaoAtiva(null);
-    render();
+    showConfirm('Abandonar a sessão atual? O progresso não será salvo no histórico.', () => {
+      clearSessaoTimers();
+      releaseWakeLock();
+      setSessaoAtiva(null);
+      render();
+    });
   });
 }
 
@@ -795,10 +1021,11 @@ function renderSessaoResumoFinal(sessao) {
     toast('Treino salvo no histórico!');
   });
   document.getElementById('btn-descartar-sessao').addEventListener('click', () => {
-    if (!confirm('Descartar esta sessão sem salvar no histórico?')) return;
-    setSessaoAtiva(null);
-    currentTab = 'meus-treinos';
-    render();
+    showConfirm('Descartar esta sessão sem salvar no histórico?', () => {
+      setSessaoAtiva(null);
+      currentTab = 'meus-treinos';
+      render();
+    });
   });
 }
 
@@ -845,9 +1072,10 @@ function renderHistorico() {
   APP.querySelectorAll('[data-del-hist]').forEach(btn => {
     btn.addEventListener('click', ev => {
       ev.stopPropagation();
-      if (!confirm('Excluir este registro do histórico?')) return;
-      setHistorico(getHistorico().filter(s => s.id !== btn.dataset.delHist));
-      render();
+      showConfirm('Excluir este registro do histórico?', () => {
+        setHistorico(getHistorico().filter(s => s.id !== btn.dataset.delHist));
+        render();
+      });
     });
   });
 }
@@ -961,10 +1189,25 @@ document.addEventListener('DOMContentLoaded', () => {
   MODAL_CONFIG.addEventListener('click', e => { if (e.target === MODAL_CONFIG) closeConfig(); });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const modalConfirm = document.getElementById('modal-confirm');
+    if (!modalConfirm.hidden) { document.getElementById('btn-confirm-cancel').click(); return; }
     if (!MODAL_MONTAR.hidden) closeMontar();
     if (!MODAL_CONFIG.hidden) closeConfig();
   });
 
+  document.getElementById('input-importar-json').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = ''; // permite importar o mesmo arquivo de novo depois
+    if (file) importarDados(file);
+  });
+
   if (getSessaoAtiva()) currentTab = 'sessao';
   render();
+
+  // ---------- PWA: service worker (funciona offline) ----------
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(e => console.warn('Service worker não registrado', e));
+    });
+  }
 });
