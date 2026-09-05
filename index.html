@@ -16,16 +16,59 @@
           <span class="brand-tag">seus treinos, sua régua</span>
         </div>
       </div>
-      <div class="sidebar-tabs">
-        <button class="tab-btn active" data-tab="equipamentos">Equipamentos</button>
-        <button class="tab-btn" data-tab="exercicios">Exercícios</button>
-        <button class="tab-btn" data-tab="montar">Montar treino</button>
-        <button class="tab-btn" data-tab="meus-treinos">Meus treinos</button>
-        <button class="tab-btn" data-tab="sessao">Treino ativo</button>
-        <button class="tab-btn" data-tab="historico">Histórico</button>
+      <div class="sidebar-nav">
+        <button class="nav-btn active" data-tab="meus-treinos">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+          <span>Meus treinos</span>
+        </button>
+        <button class="nav-btn" data-tab="sessao">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 12h4l2 7 4-14 2 7h6"/></svg>
+          <span>Treino ativo</span>
+          <span class="nav-live-dot"></span>
+        </button>
+        <button class="nav-btn" data-tab="historico">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg>
+          <span>Histórico</span>
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <button class="nav-btn-config" id="btn-config">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.55V19.6a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.98 18a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87A1.7 1.7 0 0 0 3.07 12.5H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 7.4a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.04a1.7 1.7 0 0 0 1.03-1.55V1.4a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.02 3a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.35 7.4c.29.63.9 1.05 1.58 1.1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+          <span>Ajustes</span>
+        </button>
       </div>
     </nav>
+
     <main id="app" class="main"></main>
+
+    <button id="fab-add" class="fab" title="Adicionar treino">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <span class="fab-label">Adicionar treino</span>
+  </div>
+
+  <div id="modal-montar" class="modal-overlay" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <button class="modal-close" id="btn-close-montar" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div id="montar-mount"></div>
+    </div>
+  </div>
+
+  <div id="modal-config" class="modal-overlay" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <button class="modal-close" id="btn-close-config" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <h1>Ajustes</h1>
+      <p class="sub">Equipamentos disponíveis e biblioteca de exercícios — coisas que você mexe pouco, não o dia a dia.</p>
+      <div class="config-tabs">
+        <button class="config-tab-btn active" data-config-tab="equipamentos">Equipamentos</button>
+        <button class="config-tab-btn" data-config-tab="exercicios">Exercícios</button>
+      </div>
+      <div id="config-mount"></div>
+    </div>
   </div>
 
   <script src="data.js"></script>

@@ -97,11 +97,22 @@ function toast(msg) {
   el._t = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+// ---------- ícones pequenos (usados dentro de botões) ----------
+const ICON_PLAY = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 4l14 8-14 8V4z" fill="currentColor" stroke="none"/></svg>';
+const ICON_EDIT = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+
 // ---------- estado de navegação ----------
 const APP = document.getElementById('app');
-let currentTab = 'equipamentos';
-let draftTreino = null;              // treino sendo montado/editado
-let musculosAlvoMontagem = new Set(); // grupos musculares marcados na tela "montar treino"
+const MONTAR_MOUNT = document.getElementById('montar-mount');
+const CONFIG_MOUNT = document.getElementById('config-mount');
+const MODAL_MONTAR = document.getElementById('modal-montar');
+const MODAL_CONFIG = document.getElementById('modal-config');
+
+let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico'
+let configTab = 'equipamentos';           // 'equipamentos' | 'exercicios' (dentro do modal de ajustes)
+let draftTreino = null;                   // treino sendo montado/editado
+let musculosAlvoMontagem = new Set();     // grupos musculares marcados na tela "montar treino"
 let filtroMusculo = 'todos';
 let somenteDisponiveis = true;
 let exercicioAberto = null;
@@ -117,31 +128,62 @@ function clearSessaoTimers() {
 }
 
 function render() {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
-  const ativaBtn = document.querySelector('.tab-btn[data-tab="sessao"]');
-  if (ativaBtn) ativaBtn.classList.toggle('has-active', !!getSessaoAtiva());
+  document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
+  const ativaBtn = document.querySelector('.nav-btn[data-tab="sessao"]');
+  if (ativaBtn) ativaBtn.classList.toggle('has-live', !!getSessaoAtiva());
 
   if (currentTab !== 'sessao') clearSessaoTimers();
 
   switch (currentTab) {
-    case 'equipamentos': renderEquipamentos(); break;
-    case 'exercicios': renderExercicios(); break;
-    case 'montar': renderMontarTreino(); break;
     case 'meus-treinos': renderMeusTreinos(); break;
     case 'sessao': renderSessao(); break;
     case 'historico': renderHistorico(); break;
-    default: renderEquipamentos();
+    default: renderMeusTreinos();
   }
 }
 
-// ================= EQUIPAMENTOS =================
+// ================= MODAIS =================
+function openMontarNovo() {
+  draftTreino = { id: null, nome: '', exercicios: [] };
+  musculosAlvoMontagem = new Set();
+  openMontar();
+}
+function openMontarEditar(treino) {
+  draftTreino = JSON.parse(JSON.stringify(treino));
+  musculosAlvoMontagem = new Set(unionMuscles(draftTreino.exercicios, { onlyPrimary: true }));
+  openMontar();
+}
+function openMontar() {
+  MODAL_MONTAR.hidden = false;
+  renderMontarTreino();
+}
+function closeMontar() {
+  MODAL_MONTAR.hidden = true;
+}
+function openConfig(tab) {
+  if (tab) configTab = tab;
+  MODAL_CONFIG.hidden = false;
+  updateConfigTabButtons();
+  renderConfigContent();
+}
+function closeConfig() {
+  MODAL_CONFIG.hidden = true;
+}
+function updateConfigTabButtons() {
+  document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.configTab === configTab));
+}
+function renderConfigContent() {
+  if (configTab === 'exercicios') renderExercicios(); else renderEquipamentos();
+}
+
+// ================= EQUIPAMENTOS (dentro de Ajustes) =================
 function renderEquipamentos() {
   const selected = new Set(getEquip());
-  APP.innerHTML = `
-    <section class="panel">
-      <h1>Equipamentos da academia</h1>
-      <p class="sub">Marque o que você tem disponível. Isso define quais exercícios aparecem pra você montar treino.</p>
-            <div class="actions-row">
+  CONFIG_MOUNT.innerHTML = `
+    <section>
+      <h2>Equipamentos da academia</h2>
+      <p class="sub">Marque o que você tem disponível. Isso define quais exercícios aparecem pra montar treino.</p>
+      <div class="actions-row">
         <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
         <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
       </div>
@@ -156,7 +198,7 @@ function renderEquipamentos() {
       <div id="equip-saved" class="saved-flag" hidden>Salvo ✓</div>
     </section>`;
 
-  APP.querySelectorAll('[data-equip]').forEach(input => {
+  CONFIG_MOUNT.querySelectorAll('[data-equip]').forEach(input => {
     input.addEventListener('change', () => {
       const set = new Set(getEquip());
       if (input.checked) set.add(input.dataset.equip); else set.delete(input.dataset.equip);
@@ -168,19 +210,19 @@ function renderEquipamentos() {
     });
   });
 
-      document.getElementById('btn-marcar-todos').addEventListener('click', () => {
+  document.getElementById('btn-marcar-todos').addEventListener('click', () => {
     setEquip(EQUIPMENT.map(eq => eq.id));
-    render();
+    renderEquipamentos();
     toast('Todos marcados');
   });
   document.getElementById('btn-desmarcar-todos').addEventListener('click', () => {
     setEquip([]);
-    render();
+    renderEquipamentos();
     toast('Todos desmarcados');
   });
 }
 
-// ================= EXERCÍCIOS =================
+// ================= EXERCÍCIOS (dentro de Ajustes) =================
 function renderExercicios() {
   const equipSet = new Set(getEquip());
   let lista = EXERCISES.filter(ex =>
@@ -189,9 +231,10 @@ function renderExercicios() {
   if (somenteDisponiveis) lista = lista.filter(ex => exerciseAvailable(ex, equipSet));
   lista = lista.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  APP.innerHTML = `
-    <section class="panel">
-      <h1>Exercícios</h1>
+  CONFIG_MOUNT.innerHTML = `
+    <section>
+      <h2>Biblioteca de exercícios</h2>
+      <p class="sub">Veja o que dá pra fazer com o que sua academia tem. Pra montar um treino de verdade, use o botão + em "Meus treinos".</p>
       <div class="filters-row">
         <select id="f-musculo">
           <option value="todos">Todos os músculos</option>
@@ -207,13 +250,13 @@ function renderExercicios() {
       </div>
     </section>`;
 
-  document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; render(); });
-  document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; render(); });
-  APP.querySelectorAll('.ex-card').forEach(card => {
+  document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderExercicios(); });
+  document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderExercicios(); });
+  CONFIG_MOUNT.querySelectorAll('.ex-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.dataset.id;
       exercicioAberto = exercicioAberto === id ? null : id;
-      render();
+      renderExercicios();
     });
   });
   if (exercicioAberto) {
@@ -264,7 +307,7 @@ function historicoResumoExercicio(exId) {
   return `<p class="hint">Última carga registrada: <strong>${ultimo.peso}kg</strong> × ${ultimo.reps} em ${formatDateBR(ultimo.data)}</p>`;
 }
 
-// ================= MONTAR TREINO =================
+// ================= MONTAR TREINO (modal, aberto pelo botão +) =================
 function ensureDraft() {
   if (!draftTreino) draftTreino = { id: null, nome: '', exercicios: [] };
 }
@@ -279,9 +322,9 @@ function renderMontarTreino() {
   const musculos = unionMuscles(draftTreino.exercicios);
   const estimSec = estimateTreinoSeconds(draftTreino.exercicios);
 
-  APP.innerHTML = `
-    <section class="panel">
-      <h1>${draftTreino.id ? 'Editar treino' : 'Montar treino'}</h1>
+  MONTAR_MOUNT.innerHTML = `
+    <section>
+      <h1>${draftTreino.id ? 'Editar treino' : 'Adicionar treino'}</h1>
       <div class="field-row">
         <label>Nome do treino</label>
         <input id="treino-nome" type="text" placeholder="Ex.: Treino A — Peito e tríceps" value="${escapeHtml(draftTreino.nome)}"/>
@@ -350,34 +393,34 @@ function renderMontarTreino() {
     const sel = document.getElementById('add-musculo-alvo');
     if (!sel.value) return;
     musculosAlvoMontagem.add(sel.value);
-    render();
+    renderMontarTreino();
   });
 
-  APP.querySelectorAll('[data-remove-musculo-alvo]').forEach(btn => {
+  MONTAR_MOUNT.querySelectorAll('[data-remove-musculo-alvo]').forEach(btn => {
     btn.addEventListener('click', () => {
       musculosAlvoMontagem.delete(btn.dataset.removeMusculoAlvo);
-      render();
+      renderMontarTreino();
     });
   });
 
-  APP.querySelectorAll('[data-add-btn-musculo]').forEach(btn => {
+  MONTAR_MOUNT.querySelectorAll('[data-add-btn-musculo]').forEach(btn => {
     btn.addEventListener('click', () => {
       const musculoId = btn.dataset.addBtnMusculo;
-      const sel = APP.querySelector(`[data-add-musculo="${musculoId}"]`);
+      const sel = MONTAR_MOUNT.querySelector(`[data-add-musculo="${musculoId}"]`);
       if (!sel || !sel.value) return;
       draftTreino.exercicios.push({ exercicioId: sel.value, series: 3, repeticoes: 10, peso: 0, pausa: 60 });
-      render();
+      renderMontarTreino();
     });
   });
 
-  APP.querySelectorAll('[data-remove-idx]').forEach(btn => {
+  MONTAR_MOUNT.querySelectorAll('[data-remove-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       draftTreino.exercicios.splice(Number(btn.dataset.removeIdx), 1);
-      render();
+      renderMontarTreino();
     });
   });
 
-  APP.querySelectorAll('[data-field]').forEach(input => {
+  MONTAR_MOUNT.querySelectorAll('[data-field]').forEach(input => {
     input.addEventListener('input', () => {
       const idx = Number(input.dataset.idx), field = input.dataset.field;
       let val = Number(input.value);
@@ -391,7 +434,7 @@ function renderMontarTreino() {
   document.getElementById('btn-limpar-treino').addEventListener('click', () => {
     draftTreino = { id: null, nome: '', exercicios: [] };
     musculosAlvoMontagem = new Set();
-    render();
+    renderMontarTreino();
   });
 }
 
@@ -416,8 +459,8 @@ function draftRowHTML(cfg, i) {
 function updateResumoInline() {
   const musculos = unionMuscles(draftTreino.exercicios);
   const estimSec = estimateTreinoSeconds(draftTreino.exercicios);
-  const chipRow = document.querySelector('.summary-bar .chip-row');
-  const val = document.querySelector('.summary-value');
+  const chipRow = MONTAR_MOUNT.querySelector('.summary-bar .chip-row');
+  const val = MONTAR_MOUNT.querySelector('.summary-value');
   if (chipRow) chipRow.innerHTML = musculos.length ? musculos.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('') : '<span class="hint">—</span>';
   if (val) val.textContent = formatDuration(estimSec);
 }
@@ -436,52 +479,92 @@ function salvarTreino() {
   setTreinos(treinos);
   draftTreino = null;
   musculosAlvoMontagem = new Set();
+  closeMontar();
   currentTab = 'meus-treinos';
   render();
   toast('Treino salvo!');
 }
 
-// ================= MEUS TREINOS =================
+// ================= MEUS TREINOS (tela principal) =================
+function saudacao() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Bom dia';
+  if (h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
 function renderMeusTreinos() {
   const treinos = getTreinos();
+  const hist = getHistorico();
+  const mesAtual = todayISO().slice(0, 7);
+  const sessoesMes = hist.filter(h => h.data.slice(0, 7) === mesAtual).length;
+  const ultimaSessao = hist.slice().sort((a, b) => b.data.localeCompare(a.data))[0];
+
   APP.innerHTML = `
     <section class="panel">
-      <h1>Meus treinos</h1>
-      ${treinos.length ? '' : '<p class="empty">Você ainda não montou nenhum treino. Vá em "Montar treino".</p>'}
-      <div class="treino-list">
-        ${treinos.map(t => {
-          const musculos = unionMuscles(t.exercicios);
-          const estim = estimateTreinoSeconds(t.exercicios);
-          return `
-          <div class="treino-card">
-            <div class="treino-card-head">
-              <h3>${escapeHtml(t.nome)}</h3>
-              <span class="summary-value small">${formatDuration(estim)}</span>
-            </div>
-            <div class="chip-row">${musculos.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
-            <p class="hint">${t.exercicios.length} exercício(s)</p>
-            <div class="actions-row">
-              <button class="btn btn-accent" data-start="${t.id}">Iniciar</button>
-              <button class="btn btn-ghost" data-edit="${t.id}">Editar</button>
-              <button class="btn btn-danger" data-del="${t.id}">Excluir</button>
-            </div>
-          </div>`;
-        }).join('')}
+      <div class="home-header">
+        <div>
+          <h1>${saudacao()}. Bora treinar?</h1>
+        </div>
+        <span class="home-date">${formatDateBR(todayISO())}</span>
       </div>
+
+      <div class="stat-strip">
+        <div class="stat-card">
+          <span class="stat-label">Treinos montados</span>
+          <span class="stat-value">${treinos.length}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Sessões este mês</span>
+          <span class="stat-value">${sessoesMes}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Último treino feito</span>
+          <span class="stat-value small">${ultimaSessao ? `${escapeHtml(ultimaSessao.treinoNome)} · ${formatDateBR(ultimaSessao.data)}` : '—'}</span>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Meus treinos</h2></div>
+      ${treinos.length ? `
+        <div class="treino-grid">
+          ${treinos.map(t => treinoCardHTML(t)).join('')}
+        </div>` : `
+        <div class="empty-state">
+          <strong>Você ainda não tem nenhum treino montado.</strong>
+          Toque no botão + no canto da tela para montar o seu primeiro.
+        </div>`}
     </section>`;
 
   APP.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => iniciarSessao(b.dataset.start)));
   APP.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
     const t = treinos.find(x => x.id === b.dataset.edit);
-    draftTreino = JSON.parse(JSON.stringify(t));
-    musculosAlvoMontagem = new Set(unionMuscles(draftTreino.exercicios, { onlyPrimary: true }));
-    currentTab = 'montar'; render();
+    if (t) openMontarEditar(t);
   }));
   APP.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
     if (!confirm('Excluir este treino?')) return;
     setTreinos(getTreinos().filter(x => x.id !== b.dataset.del));
     render();
+    toast('Treino excluído.');
   }));
+}
+
+function treinoCardHTML(t) {
+  const musculos = unionMuscles(t.exercicios);
+  const estim = estimateTreinoSeconds(t.exercicios);
+  return `
+    <div class="treino-card">
+      <div class="treino-card-head">
+        <h3>${escapeHtml(t.nome)}</h3>
+        <span class="summary-value small">${formatDuration(estim)}</span>
+      </div>
+      <div class="chip-row">${musculos.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
+      <p class="hint">${t.exercicios.length} exercício(s)</p>
+      <div class="icon-actions">
+        <button class="btn-icon act-start" data-start="${t.id}">${ICON_PLAY}Iniciar</button>
+        <button class="btn-icon" data-edit="${t.id}">${ICON_EDIT}Editar</button>
+        <button class="btn-icon act-danger" data-del="${t.id}">${ICON_TRASH}Excluir</button>
+      </div>
+    </div>`;
 }
 
 // ================= SESSÃO ATIVA =================
@@ -822,8 +905,8 @@ function desenharGrafico(exId) {
   if (min < 0) min = 0;
 
   const styles = getComputedStyle(document.documentElement);
-  const corLinha = styles.getPropertyValue('--accent').trim() || '#e3b23c';
-  const corGrid = styles.getPropertyValue('--border').trim() || '#34373c';
+  const corLinha = styles.getPropertyValue('--chalk').trim() || '#E9BD4A';
+  const corGrid = styles.getPropertyValue('--line').trim() || '#34373c';
   const corTexto = styles.getPropertyValue('--text-muted').trim() || '#8b8d94';
 
   ctx.strokeStyle = corGrid; ctx.lineWidth = 1;
@@ -857,9 +940,31 @@ function desenharGrafico(exId) {
 
 // ================= INIT =================
 document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
+  document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  document.getElementById('fab-add').addEventListener('click', openMontarNovo);
+  document.getElementById('btn-close-montar').addEventListener('click', closeMontar);
+  document.getElementById('btn-config').addEventListener('click', () => openConfig('equipamentos'));
+  document.getElementById('btn-close-config').addEventListener('click', closeConfig);
+
+  document.querySelectorAll('.config-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      configTab = btn.dataset.configTab;
+      updateConfigTabButtons();
+      renderConfigContent();
+    });
+  });
+
+  MODAL_MONTAR.addEventListener('click', e => { if (e.target === MODAL_MONTAR) closeMontar(); });
+  MODAL_CONFIG.addEventListener('click', e => { if (e.target === MODAL_CONFIG) closeConfig(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!MODAL_MONTAR.hidden) closeMontar();
+    if (!MODAL_CONFIG.hidden) closeConfig();
+  });
+
   if (getSessaoAtiva()) currentTab = 'sessao';
   render();
 });
