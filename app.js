@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   TREINOS: 'maromba_treinos',
   HIST: 'maromba_historico',
   ATIVA: 'maromba_sessao_ativa',
+  CUSTOM: 'maromba_exercicios_personalizados',
 };
 
 function loadJSON(key, fallback) {
@@ -36,6 +37,12 @@ function getHistorico() { return loadJSON(STORAGE_KEYS.HIST, []); }
 function setHistorico(arr) { saveJSON(STORAGE_KEYS.HIST, arr); }
 function getSessaoAtiva() { return loadJSON(STORAGE_KEYS.ATIVA, null); }
 function setSessaoAtiva(obj) { saveJSON(STORAGE_KEYS.ATIVA, obj); }
+function getCustomExercises() { return loadJSON(STORAGE_KEYS.CUSTOM, []); }
+function setCustomExercises(arr) { saveJSON(STORAGE_KEYS.CUSTOM, arr); syncCustomExercises(); }
+// mantém a variável global CUSTOM_EXERCISES (definida em data.js) em dia
+// com o que está salvo, pra exerciseById()/allExercises() sempre enxergarem
+// os exercícios personalizados mais recentes.
+function syncCustomExercises() { CUSTOM_EXERCISES = getCustomExercises(); }
 
 // ---------- helpers ----------
 function uid() { return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -197,13 +204,18 @@ const MONTAR_MOUNT = document.getElementById('montar-mount');
 const CONFIG_MOUNT = document.getElementById('config-mount');
 const MODAL_MONTAR = document.getElementById('modal-montar');
 const MODAL_CONFIG = document.getElementById('modal-config');
+const EXERCICIO_CUSTOM_MOUNT = document.getElementById('exercicio-custom-mount');
+const MODAL_EXERCICIO_CUSTOM = document.getElementById('modal-exercicio-custom');
 
 let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'equipamentos' | 'exercicios'
 let draftTreino = null;                   // treino sendo montado/editado
 let musculosAlvoMontagem = new Set();     // grupos musculares marcados na tela "montar treino"
 let filtroMusculo = 'todos';
+let filtroBusca = '';
 let somenteDisponiveis = true;
 let exercicioAberto = null;
+let buscaMontagem = {};           // termo de busca por caixa de grupo muscular, na tela "montar treino"
+let draftExercicioCustom = null;  // exercício personalizado sendo cadastrado
 let sessaoHistAberta = null;
 let exercicioGraficoSelecionado = null;
 const sessaoTimers = { elapsedInt: null, restInt: null };
@@ -236,11 +248,13 @@ function render() {
 function openMontarNovo() {
   draftTreino = { id: null, nome: '', exercicios: [] };
   musculosAlvoMontagem = new Set();
+  buscaMontagem = {};
   openMontar();
 }
 function openMontarEditar(treino) {
   draftTreino = JSON.parse(JSON.stringify(treino));
   musculosAlvoMontagem = new Set(unionMuscles(draftTreino.exercicios, { onlyPrimary: true }));
+  buscaMontagem = {};
   openMontar();
 }
 function openMontar() {
@@ -256,6 +270,15 @@ function openConfig() {
 }
 function closeConfig() {
   MODAL_CONFIG.hidden = true;
+}
+function openExercicioCustom() {
+  draftExercicioCustom = { nome: '', equipamento: [], primarios: [], secundarios: [] };
+  MODAL_EXERCICIO_CUSTOM.hidden = false;
+  renderExercicioCustom();
+}
+function closeExercicioCustom() {
+  MODAL_EXERCICIO_CUSTOM.hidden = true;
+  draftExercicioCustom = null;
 }
 
 // ================= EQUIPAMENTOS =================
@@ -310,7 +333,7 @@ function renderDados() {
     <section>
       <p class="hint">
         Hoje: ${getEquip().length} equipamento(s) marcado(s), ${getTreinos().length} treino(s) montado(s),
-        ${getHistorico().length} sessão(ões) no histórico${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
+        ${getHistorico().length} sessão(ões) no histórico, ${getCustomExercises().length} exercício(s) personalizado(s)${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
       </p>
       <div class="backup-actions">
         <button id="btn-exportar-dados" class="btn btn-accent">${ICON_DOWNLOAD}Exportar backup (.json)</button>
@@ -335,6 +358,7 @@ function exportarDados() {
       treinos: getTreinos(),
       historico: getHistorico(),
       sessaoAtiva: getSessaoAtiva(),
+      exerciciosPersonalizados: getCustomExercises(),
     },
   };
   try {
@@ -381,15 +405,17 @@ function importarDados(file) {
     const equipamentos = normalizarCampoImportado(bruto.equipamentos);
     const treinos = normalizarCampoImportado(bruto.treinos);
     const historico = normalizarCampoImportado(bruto.historico);
-    if (!Array.isArray(equipamentos) && !Array.isArray(treinos) && !Array.isArray(historico)) {
+    const exerciciosPersonalizados = normalizarCampoImportado(bruto.exerciciosPersonalizados);
+    if (!Array.isArray(equipamentos) && !Array.isArray(treinos) && !Array.isArray(historico) && !Array.isArray(exerciciosPersonalizados)) {
       toast('Nenhum dado reconhecido nesse arquivo.');
       return;
     }
 
-    showConfirm('Importar vai substituir todos os dados atuais (equipamentos, treinos e histórico) por este arquivo. Continuar?', () => {
+    showConfirm('Importar vai substituir todos os dados atuais (equipamentos, treinos, histórico e exercícios personalizados) por este arquivo. Continuar?', () => {
       if (Array.isArray(equipamentos)) setEquip(equipamentos);
       if (Array.isArray(treinos)) setTreinos(treinos);
       if (Array.isArray(historico)) setHistorico(historico);
+      if (Array.isArray(exerciciosPersonalizados)) setCustomExercises(exerciciosPersonalizados);
       if ('sessaoAtiva' in bruto) setSessaoAtiva(normalizarCampoImportado(bruto.sessaoAtiva) || bruto.sessaoAtiva || null);
       toast('Dados importados com sucesso!');
       closeConfig();
@@ -404,17 +430,23 @@ function importarDados(file) {
 // ================= EXERCÍCIOS =================
 function renderExercicios() {
   const equipSet = new Set(getEquip());
-  let lista = EXERCISES.filter(ex =>
+  let lista = allExercises().filter(ex =>
     filtroMusculo === 'todos' || ex.musculos.primarios.includes(filtroMusculo) || ex.musculos.secundarios.includes(filtroMusculo)
   );
   if (somenteDisponiveis) lista = lista.filter(ex => exerciseAvailable(ex, equipSet));
+  const termoBusca = filtroBusca.trim().toLowerCase();
+  if (termoBusca) lista = lista.filter(ex => ex.nome.toLowerCase().includes(termoBusca));
   lista = lista.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   APP.innerHTML = `
     <section class="panel">
-      <h1>Biblioteca de exercícios</h1>
+      <div class="section-head">
+        <h1>Biblioteca de exercícios</h1>
+        <button id="btn-novo-exercicio-custom" class="btn btn-ghost btn-small" style="margin-top:0">+ Exercício personalizado</button>
+      </div>
       <p class="sub">Veja o que dá pra fazer com o que sua academia tem. Pra montar um treino de verdade, use o botão + em "Meus treinos".</p>
       <div class="filters-row">
+        <input type="text" id="f-busca" placeholder="Buscar por nome..." value="${escapeHtml(filtroBusca)}"/>
         <select id="f-musculo">
           <option value="todos">Todos os músculos</option>
           ${MUSCLES.map(m => `<option value="${m.id}" ${filtroMusculo === m.id ? 'selected' : ''}>${m.nome}</option>`).join('')}
@@ -429,13 +461,34 @@ function renderExercicios() {
       </div>
     </section>`;
 
+  const buscaInput = document.getElementById('f-busca');
+  buscaInput.addEventListener('input', e => {
+    filtroBusca = e.target.value;
+    const pos = e.target.selectionStart;
+    renderExercicios();
+    const el = document.getElementById('f-busca');
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  });
   document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderExercicios(); });
   document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderExercicios(); });
+  document.getElementById('btn-novo-exercicio-custom').addEventListener('click', openExercicioCustom);
   APP.querySelectorAll('.ex-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.dataset.id;
       exercicioAberto = exercicioAberto === id ? null : id;
       renderExercicios();
+    });
+  });
+  APP.querySelectorAll('[data-del-custom]').forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      showConfirm('Excluir este exercício personalizado? Treinos que já o usam vão manter apenas o nome salvo.', () => {
+        setCustomExercises(getCustomExercises().filter(e => e.id !== btn.dataset.delCustom));
+        exercicioAberto = null;
+        renderExercicios();
+        toast('Exercício personalizado excluído.');
+      });
     });
   });
   if (exercicioAberto) {
@@ -453,7 +506,10 @@ function exCardHTML(ex, equipSet) {
     <div class="ex-card ${disponivel ? '' : 'ex-indisponivel'} ${aberto ? 'ex-aberto' : ''}" data-id="${ex.id}">
       <div class="ex-card-head">
         <span class="ex-nome">${ex.nome}</span>
-        ${disponivel ? '' : '<span class="badge-off">falta equipamento</span>'}
+        <span class="ex-card-head-right">
+          ${ex.personalizado ? '<span class="badge-custom">personalizado</span>' : ''}
+          ${disponivel ? '' : '<span class="badge-off">falta equipamento</span>'}
+        </span>
       </div>
       <div class="chip-row">
         ${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}
@@ -466,6 +522,7 @@ function exCardHTML(ex, equipSet) {
             <p><strong>Equipamento necessário:</strong> ${ex.equipamento.length ? ex.equipamento.map(id => EQUIPMENT.find(e => e.id === id)?.nome).join(', ') : 'Nenhum (peso do corpo)'}</p>
             ${!disponivel ? `<p class="missing">Falta: ${faltando.join(', ')}</p>` : ''}
             ${historicoResumoExercicio(ex.id)}
+            ${ex.personalizado ? `<button class="btn btn-danger btn-small" data-del-custom="${ex.id}">${ICON_TRASH}Excluir exercício personalizado</button>` : ''}
           </div>
         </div>` : ''}
     </div>`;
@@ -486,6 +543,134 @@ function historicoResumoExercicio(exId) {
   return `<p class="hint">Última carga registrada: <strong>${ultimo.peso}kg</strong> × ${ultimo.reps} em ${formatDateBR(ultimo.data)}</p>`;
 }
 
+// ================= EXERCÍCIO PERSONALIZADO (modal) =================
+function ensureDraftExercicioCustom() {
+  if (!draftExercicioCustom) draftExercicioCustom = { nome: '', equipamento: [], primarios: [], secundarios: [] };
+}
+
+function renderExercicioCustom() {
+  ensureDraftExercicioCustom();
+  const d = draftExercicioCustom;
+
+  EXERCICIO_CUSTOM_MOUNT.innerHTML = `
+    <section>
+      <h1>Novo exercício personalizado</h1>
+      <p class="sub">Cadastre um exercício que não está na biblioteca fixa — por exemplo, uma máquina específica da sua academia.</p>
+
+      <div class="field-row">
+        <label>Nome do exercício</label>
+        <input id="custom-nome" type="text" placeholder="Ex.: Remada na máquina X" value="${escapeHtml(d.nome)}"/>
+      </div>
+
+      <div class="field-row">
+        <label>Músculos primários (obrigatório escolher ao menos 1)</label>
+        <div class="equip-grid">
+          ${MUSCLES.map(m => `
+            <label class="equip-item">
+              <input type="checkbox" data-custom-primario="${m.id}" ${d.primarios.includes(m.id) ? 'checked' : ''}/>
+              <span>${m.nome}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label>Músculos secundários (opcional)</label>
+        <div class="equip-grid">
+          ${MUSCLES.map(m => `
+            <label class="equip-item">
+              <input type="checkbox" data-custom-secundario="${m.id}" ${d.secundarios.includes(m.id) ? 'checked' : ''}/>
+              <span>${m.nome}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label>Equipamento necessário (deixe tudo desmarcado para "peso do corpo")</label>
+        <div class="equip-grid">
+          ${EQUIPMENT.map(eq => `
+            <label class="equip-item">
+              <input type="checkbox" data-custom-equip="${eq.id}" ${d.equipamento.includes(eq.id) ? 'checked' : ''}/>
+              <span>${eq.nome}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button id="btn-salvar-exercicio-custom" class="btn btn-accent">Salvar exercício</button>
+      </div>
+
+      ${getCustomExercises().length ? `
+        <h2 class="subtitle">Seus exercícios personalizados</h2>
+        <div class="exlist">
+          ${getCustomExercises().map(ex => `
+            <div class="ex-card">
+              <div class="ex-card-head">
+                <span class="ex-nome">${escapeHtml(ex.nome)}</span>
+                <button class="btn-remove" data-del-custom-inline="${ex.id}" title="Excluir">✕</button>
+              </div>
+              <div class="chip-row">
+                ${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}
+                ${ex.musculos.secundarios.map(m => `<span class="chip chip-secondary">${muscleName(m)}</span>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
+    </section>`;
+
+  document.getElementById('custom-nome').addEventListener('input', e => { d.nome = e.target.value; });
+  EXERCICIO_CUSTOM_MOUNT.querySelectorAll('[data-custom-primario]').forEach(input => {
+    input.addEventListener('change', () => {
+      const id = input.dataset.customPrimario;
+      if (input.checked) { d.primarios.push(id); d.secundarios = d.secundarios.filter(m => m !== id); }
+      else d.primarios = d.primarios.filter(m => m !== id);
+      renderExercicioCustom();
+    });
+  });
+  EXERCICIO_CUSTOM_MOUNT.querySelectorAll('[data-custom-secundario]').forEach(input => {
+    input.addEventListener('change', () => {
+      const id = input.dataset.customSecundario;
+      if (input.checked) { d.secundarios.push(id); d.primarios = d.primarios.filter(m => m !== id); }
+      else d.secundarios = d.secundarios.filter(m => m !== id);
+      renderExercicioCustom();
+    });
+  });
+  EXERCICIO_CUSTOM_MOUNT.querySelectorAll('[data-custom-equip]').forEach(input => {
+    input.addEventListener('change', () => {
+      const id = input.dataset.customEquip;
+      if (input.checked) d.equipamento.push(id); else d.equipamento = d.equipamento.filter(e => e !== id);
+    });
+  });
+  document.getElementById('btn-salvar-exercicio-custom').addEventListener('click', salvarExercicioCustom);
+  EXERCICIO_CUSTOM_MOUNT.querySelectorAll('[data-del-custom-inline]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showConfirm('Excluir este exercício personalizado?', () => {
+        setCustomExercises(getCustomExercises().filter(e => e.id !== btn.dataset.delCustomInline));
+        renderExercicioCustom();
+        toast('Exercício personalizado excluído.');
+      });
+    });
+  });
+}
+
+function salvarExercicioCustom() {
+  const d = draftExercicioCustom;
+  const nome = d.nome.trim();
+  if (!nome) { toast('Dê um nome ao exercício antes de salvar.'); return; }
+  if (d.primarios.length === 0) { toast('Escolha ao menos um músculo primário.'); return; }
+  const novo = {
+    id: 'custom_' + uid(),
+    nome,
+    equipamento: [...d.equipamento],
+    musculos: { primarios: [...d.primarios], secundarios: [...d.secundarios] },
+    personalizado: true,
+  };
+  setCustomExercises([...getCustomExercises(), novo]);
+  draftExercicioCustom = { nome: '', equipamento: [], primarios: [], secundarios: [] };
+  closeExercicioCustom();
+  currentTab = 'exercicios';
+  render();
+  toast('Exercício personalizado salvo!');
+}
+
 // ================= MONTAR TREINO (modal, aberto pelo botão +) =================
 function ensureDraft() {
   if (!draftTreino) draftTreino = { id: null, nome: '', exercicios: [] };
@@ -494,7 +679,7 @@ function ensureDraft() {
 function renderMontarTreino() {
   ensureDraft();
   const equipSet = new Set(getEquip());
-  const disponiveis = EXERCISES.filter(ex => exerciseAvailable(ex, equipSet)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const disponiveis = allExercises().filter(ex => exerciseAvailable(ex, equipSet)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const jaAdicionados = new Set(draftTreino.exercicios.map(e => e.exercicioId));
   const musculosOrdenados = MUSCLES.filter(m => musculosAlvoMontagem.has(m.id));
   const musculosDisponiveis = MUSCLES.filter(m => !musculosAlvoMontagem.has(m.id));
@@ -523,18 +708,21 @@ function renderMontarTreino() {
 
       <div class="musculo-add-boxes">
         ${musculosOrdenados.length ? musculosOrdenados.map(m => {
-          const opcoes = disponiveis.filter(ex => ex.musculos.primarios.includes(m.id) && !jaAdicionados.has(ex.id));
+          const todasOpcoes = disponiveis.filter(ex => ex.musculos.primarios.includes(m.id) && !jaAdicionados.has(ex.id));
+          const termo = (buscaMontagem[m.id] || '').trim().toLowerCase();
+          const opcoes = termo ? todasOpcoes.filter(ex => ex.nome.toLowerCase().includes(termo)) : todasOpcoes;
           return `
           <div class="muscle-add-box">
             <div class="muscle-add-box-head">
               <h3>${m.nome}</h3>
               <button class="btn-remove" data-remove-musculo-alvo="${m.id}" title="Remover grupo muscular">✕</button>
             </div>
+            ${todasOpcoes.length ? `<input type="text" class="input-busca-musculo" data-busca-musculo="${m.id}" placeholder="Buscar exercício por nome..." value="${escapeHtml(buscaMontagem[m.id] || '')}"/>` : ''}
             <div class="add-row">
               <select data-add-musculo="${m.id}" ${opcoes.length === 0 ? 'disabled' : ''}>
                 ${opcoes.length
                   ? opcoes.map(ex => `<option value="${ex.id}">${ex.nome}</option>`).join('')
-                  : `<option>Nenhum exercício de ${m.nome.toLowerCase()} disponível com seu equipamento</option>`}
+                  : `<option>${termo ? 'Nenhum exercício encontrado com essa busca' : `Nenhum exercício de ${m.nome.toLowerCase()} disponível com seu equipamento`}</option>`}
               </select>
               <button class="btn" data-add-btn-musculo="${m.id}" ${opcoes.length === 0 ? 'disabled' : ''}>Adicionar</button>
             </div>
@@ -578,7 +766,19 @@ function renderMontarTreino() {
   MONTAR_MOUNT.querySelectorAll('[data-remove-musculo-alvo]').forEach(btn => {
     btn.addEventListener('click', () => {
       musculosAlvoMontagem.delete(btn.dataset.removeMusculoAlvo);
+      delete buscaMontagem[btn.dataset.removeMusculoAlvo];
       renderMontarTreino();
+    });
+  });
+
+  MONTAR_MOUNT.querySelectorAll('[data-busca-musculo]').forEach(input => {
+    input.addEventListener('input', e => {
+      const musculoId = input.dataset.buscaMusculo;
+      buscaMontagem[musculoId] = e.target.value;
+      const pos = e.target.selectionStart;
+      renderMontarTreino();
+      const el = MONTAR_MOUNT.querySelector(`[data-busca-musculo="${musculoId}"]`);
+      if (el) { el.focus(); el.setSelectionRange(pos, pos); }
     });
   });
 
@@ -1165,15 +1365,18 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-close-montar').addEventListener('click', closeMontar);
   document.getElementById('btn-config').addEventListener('click', openConfig);
   document.getElementById('btn-close-config').addEventListener('click', closeConfig);
+  document.getElementById('btn-close-exercicio-custom').addEventListener('click', closeExercicioCustom);
 
   MODAL_MONTAR.addEventListener('click', e => { if (e.target === MODAL_MONTAR) closeMontar(); });
   MODAL_CONFIG.addEventListener('click', e => { if (e.target === MODAL_CONFIG) closeConfig(); });
+  MODAL_EXERCICIO_CUSTOM.addEventListener('click', e => { if (e.target === MODAL_EXERCICIO_CUSTOM) closeExercicioCustom(); });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     const modalConfirm = document.getElementById('modal-confirm');
     if (!modalConfirm.hidden) { document.getElementById('btn-confirm-cancel').click(); return; }
     if (!MODAL_MONTAR.hidden) closeMontar();
     if (!MODAL_CONFIG.hidden) closeConfig();
+    if (!MODAL_EXERCICIO_CUSTOM.hidden) closeExercicioCustom();
   });
 
   document.getElementById('input-importar-json').addEventListener('change', e => {
@@ -1182,6 +1385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (file) importarDados(file);
   });
 
+  syncCustomExercises();
   if (getSessaoAtiva()) currentTab = 'sessao';
   render();
 

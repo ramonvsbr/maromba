@@ -139,6 +139,17 @@ const EXERCISES = [
   { id:'abdominal_polia', nome:'Abdominal na polia (crunch cabo)', equipamento:['polia_alta'], musculos:{primarios:['abdomen'],secundarios:[]} },
 ];
 
+// ---- Exercícios personalizados ------------------------------
+// Cadastrados pelo usuário quando a biblioteca fixa não cobre um
+// equipamento específico da academia dele. Ficam guardados no
+// localStorage (ver STORAGE_KEYS.CUSTOM em app.js) e essa variável
+// é sincronizada com o que está salvo sempre que a lista muda.
+let CUSTOM_EXERCISES = [];
+
+function allExercises() {
+  return EXERCISES.concat(CUSTOM_EXERCISES);
+}
+
 function exerciseById(id) {
-  return EXERCISES.find(e => e.id === id);
+  return allExercises().find(e => e.id === id);
 }
