@@ -387,8 +387,23 @@ input[type=number]{ width: 78px; font-family: var(--font-mono); }
 .descanso-box .big{ font-size:26px; color: var(--chalk); font-weight:700; }
 
 /* ---------- histórico ---------- */
-.chart-box{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius); padding: 12px; margin: 14px 0 24px; }
+.chart-toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+.segmented{ display:inline-flex; border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; }
+.seg-btn{
+  background: var(--surface-2); color: var(--text-muted); border:none; border-right:1px solid var(--line);
+  padding:6px 12px; font-size:12px; cursor:pointer; font-family: var(--font-body);
+}
+.seg-btn:last-child{ border-right:none; }
+.seg-btn:hover{ color: var(--text); }
+.seg-btn.active{ background: var(--chalk); color: var(--chalk-ink); font-weight:600; }
+.btn-link{
+  background:none; border:none; color: var(--chalk); font-size:12px; cursor:pointer;
+  padding:4px 2px; text-decoration: underline; text-underline-offset: 2px; font-family: var(--font-body);
+}
+.btn-link:hover{ filter: brightness(1.1); }
+.chart-box{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius); padding: 12px; margin: 0 0 24px; position: relative; }
 .chart-box canvas{ width:100%; height:auto; display:block; }
+.chart-zoom-hint{ margin: 8px 0 0; font-size:11px; text-align:center; }
 .hist-list{ display:flex; flex-direction:column; gap:10px; }
 .hist-card{ background: var(--surface); border:1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; cursor:pointer; }
 .hist-card.ex-aberto{ border-color: var(--chalk); }

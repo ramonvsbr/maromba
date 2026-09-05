@@ -2,20 +2,35 @@
    MAROMBA — service worker
    Cache simples "cache-first, com atualização em segundo
    plano" dos arquivos estáticos, pra funcionar offline.
-   Suba a versão do CACHE_NAME sempre que mudar algum arquivo
-   estático, senão o navegador continua servindo a versão
-   antiga do cache.
+
+   Suba APP_VERSION sempre que mudar style.css, app.js,
+   bodymap.js ou data.js — e troque o mesmo número no "?v="
+   desses arquivos no index.html. Isso derruba tanto o cache
+   do service worker (nome do cache muda, o velho é apagado no
+   'activate') quanto qualquer cache de CDN/navegador na frente
+   dele (a URL com query string nova é tratada como um recurso
+   diferente, então o Cloudflare busca a versão nova na
+   origem em vez de servir a antiga).
    ========================================================= */
 
-const CACHE_NAME = 'maromba-cache-v1';
+/* Suba este número junto com o "?v=" usado no index.html sempre que
+   publicar uma mudança em style.css, app.js, bodymap.js ou data.js.
+   Ele entra tanto na query string de cache-busting (contra o cache do
+   Cloudflare) quanto no nome do cache do service worker (pra forçar o
+   'activate' a descartar o cache antigo e o 'install' a baixar tudo de
+   novo). Se só um dos dois for atualizado, o navegador pode acabar
+   comparando um HTML novo com JS/CSS velhos (ou vice-versa). */
+const APP_VERSION = '3';
+const CACHE_NAME = `maromba-cache-v${APP_VERSION}`;
 const ARQUIVOS_ESTATICOS = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
-  './bodymap.js',
-  './data.js',
+  `./style.css?v=${APP_VERSION}`,
+  `./app.js?v=${APP_VERSION}`,
+  `./bodymap.js?v=${APP_VERSION}`,
+  `./data.js?v=${APP_VERSION}`,
   './manifest.json',
+  './favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-192-maskable.png',

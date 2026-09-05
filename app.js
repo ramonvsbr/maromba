@@ -218,6 +218,24 @@ let buscaMontagem = {};           // termo de busca por caixa de grupo muscular,
 let draftExercicioCustom = null;  // exercício personalizado sendo cadastrado
 let sessaoHistAberta = null;
 let exercicioGraficoSelecionado = null;
+let graficoPeriodo = '3m';   // '1m' | '3m' | '6m' | '1a' | 'tudo'
+let graficoZoom = null;      // { inicio: 'AAAA-MM-DD', fim: 'AAAA-MM-DD' } | null — recorte extra por arraste no gráfico
+
+const PERIODOS_GRAFICO = [
+  { id: '1m', label: '1 mês' },
+  { id: '3m', label: '3 meses' },
+  { id: '6m', label: '6 meses' },
+  { id: '1a', label: '1 ano' },
+  { id: 'tudo', label: 'Tudo' },
+];
+
+function dataCorteParaPeriodo(periodo) {
+  if (periodo === 'tudo') return null;
+  const meses = { '1m': 1, '3m': 3, '6m': 6, '1a': 12 }[periodo] || 3;
+  const d = new Date();
+  d.setMonth(d.getMonth() - meses);
+  return d.toISOString().slice(0, 10);
+}
 const sessaoTimers = { elapsedInt: null, restInt: null };
 
 function switchTab(id) { currentTab = id; render(); }
@@ -1238,9 +1256,16 @@ function renderHistorico() {
             : '<option>Sem dados ainda</option>'}
         </select>
       </div>
+      <div class="chart-toolbar">
+        <div class="segmented" id="seg-periodo" role="group" aria-label="Período do gráfico">
+          ${PERIODOS_GRAFICO.map(p => `<button type="button" class="seg-btn ${graficoPeriodo === p.id ? 'active' : ''}" data-periodo="${p.id}">${p.label}</button>`).join('')}
+        </div>
+        <button type="button" id="btn-reset-zoom" class="btn-link" ${graficoZoom ? '' : 'hidden'}>↺ Ver período inteiro</button>
+      </div>
       <div class="chart-box">
         <canvas id="chart-canvas" width="640" height="220"></canvas>
-        <p id="chart-empty" class="empty" hidden>Registre séries em pelo menos 2 sessões para ver a evolução deste exercício.</p>
+        <p id="chart-empty" class="empty" hidden>Registre séries em pelo menos 2 sessões dentro do período selecionado para ver a evolução deste exercício.</p>
+        <p class="hint chart-zoom-hint">Arraste sobre o gráfico pra dar zoom num trecho.</p>
       </div>
 
       <h2 class="subtitle">Sessões registradas</h2>
@@ -1249,7 +1274,24 @@ function renderHistorico() {
     </section>`;
 
   const sel = document.getElementById('sel-grafico');
-  if (sel) sel.addEventListener('change', e => { exercicioGraficoSelecionado = e.target.value; render(); });
+  if (sel) sel.addEventListener('change', e => {
+    exercicioGraficoSelecionado = e.target.value;
+    graficoZoom = null;
+    render();
+  });
+  APP.querySelectorAll('#seg-periodo [data-periodo]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.periodo === graficoPeriodo) return;
+      graficoPeriodo = btn.dataset.periodo;
+      graficoZoom = null;
+      render();
+    });
+  });
+  const btnResetZoom = document.getElementById('btn-reset-zoom');
+  if (btnResetZoom) btnResetZoom.addEventListener('click', () => {
+    graficoZoom = null;
+    render();
+  });
   if (exercicioGraficoSelecionado) desenharGrafico(exercicioGraficoSelecionado);
 
   APP.querySelectorAll('[data-hist-toggle]').forEach(card => {
@@ -1302,14 +1344,28 @@ function desenharGrafico(exId) {
   ctx.clearRect(0, 0, W, H);
 
   const hist = getHistorico().slice().sort((a, b) => a.data.localeCompare(b.data));
-  const pontos = [];
+  const todosPontos = [];
   hist.forEach(s => {
     const cfg = s.exercicios.find(e => e.exercicioId === exId);
-    if (cfg && cfg.sets.length) pontos.push({ data: s.data, peso: Math.max(...cfg.sets.map(x => x.peso)) });
+    if (cfg && cfg.sets.length) todosPontos.push({ data: s.data, peso: Math.max(...cfg.sets.map(x => x.peso)) });
   });
 
+  // filtro por período (segmentado acima do gráfico)
+  const dataCorte = dataCorteParaPeriodo(graficoPeriodo);
+  let pontos = dataCorte ? todosPontos.filter(p => p.data >= dataCorte) : todosPontos;
+
+  // recorte extra por zoom (arraste do usuário), guardado como datas pra
+  // não bagunçar ao reaplicar sobre um `pontos` que já mudou de tamanho
+  if (graficoZoom) {
+    pontos = pontos.filter(p => p.data >= graficoZoom.inicio && p.data <= graficoZoom.fim);
+  }
+
   const emptyMsg = document.getElementById('chart-empty');
-  if (pontos.length < 2) { if (emptyMsg) emptyMsg.hidden = false; return; }
+  if (pontos.length < 2) {
+    if (emptyMsg) emptyMsg.hidden = false;
+    canvas.onpointerdown = canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null;
+    return;
+  }
   if (emptyMsg) emptyMsg.hidden = true;
 
   const padL = 46, padR = 16, padT = 16, padB = 28;
@@ -1353,6 +1409,86 @@ function desenharGrafico(exId) {
     ctx.fillText(formatDateBR(p.data).slice(0, 5), xFor(i), H - 8);
   });
   ctx.textAlign = 'left';
+
+  // snapshot do gráfico "limpo", pra redesenhar rápido durante o arraste
+  // de seleção sem ter que rodar tudo isso nesse ponto de novo
+  const snapshot = ctx.getImageData(0, 0, W, H);
+  configurarZoomArrasteCanvas(canvas, ctx, snapshot, pontos, padL, plotW, (inicio, fim) => {
+    graficoZoom = { inicio, fim };
+    render();
+  });
+}
+
+/**
+ * Liga o arraste de mouse/toque sobre o canvas do gráfico pra selecionar um
+ * trecho e dar zoom nele. `pontos` já é a lista filtrada/atualmente visível;
+ * `onSelecionar(dataInicio, dataFim)` é chamado com as datas do início e do
+ * fim do trecho arrastado (não os índices), pra o zoom não ficar bagunçado
+ * quando o usuário arrastar de novo em cima de um recorte já zoomado.
+ */
+function configurarZoomArrasteCanvas(canvas, ctx, snapshot, pontos, padL, plotW, onSelecionar) {
+  const W = canvas.width, H = canvas.height;
+  const podeZoom = pontos.length >= 3;
+  canvas.style.cursor = podeZoom ? 'crosshair' : 'default';
+  canvas.style.touchAction = 'none';
+
+  if (!podeZoom) {
+    canvas.onpointerdown = canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null;
+    return;
+  }
+
+  let arrastando = false;
+  let startX = 0;
+
+  function posPixel(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const escala = canvas.width / rect.width;
+    const x = (ev.clientX - rect.left) * escala;
+    return Math.max(padL, Math.min(padL + plotW, x));
+  }
+  function pixelParaIndice(x) {
+    const rel = (x - padL) / plotW;
+    return Math.max(0, Math.min(pontos.length - 1, Math.round(rel * (pontos.length - 1))));
+  }
+  function desenharSelecao(x0, x1) {
+    ctx.putImageData(snapshot, 0, 0);
+    ctx.fillStyle = 'rgba(233,189,74,0.16)';
+    ctx.fillRect(x0, 0, x1 - x0, H);
+    ctx.strokeStyle = 'rgba(233,189,74,0.65)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x0 + 0.5, 0.5, Math.max(0, x1 - x0 - 1), H - 1);
+  }
+
+  function onDown(ev) {
+    arrastando = true;
+    startX = posPixel(ev);
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* ignora */ }
+  }
+  function onMove(ev) {
+    if (!arrastando) return;
+    const x = posPixel(ev);
+    desenharSelecao(Math.min(startX, x), Math.max(startX, x));
+  }
+  function onUp(ev) {
+    if (!arrastando) return;
+    arrastando = false;
+    const x = posPixel(ev);
+    ctx.putImageData(snapshot, 0, 0);
+    if (Math.abs(x - startX) < 8) return; // arraste curto demais: ignora (foi só um clique)
+    const i0 = pixelParaIndice(Math.min(startX, x));
+    const i1 = pixelParaIndice(Math.max(startX, x));
+    if (i1 <= i0) return;
+    onSelecionar(pontos[i0].data, pontos[i1].data);
+  }
+  function onCancel() {
+    arrastando = false;
+    ctx.putImageData(snapshot, 0, 0);
+  }
+
+  canvas.onpointerdown = onDown;
+  canvas.onpointermove = onMove;
+  canvas.onpointerup = onUp;
+  canvas.onpointercancel = onCancel;
 }
 
 // ================= INIT =================

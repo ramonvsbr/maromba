@@ -10,9 +10,25 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Maromba"/>
   <link rel="manifest" href="manifest.json"/>
-  <link rel="icon" href="icons/icon-192.png"/>
+
+  <!-- Favicon: SVG vetorial (não depende dos ícones PWA gerados) com
+       fallback em PNG pra navegadores/leitores mais antigos. -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
-  <link rel="stylesheet" href="style.css"/>
+  <link rel="mask-icon" href="favicon.svg" color="#E9BD4A"/>
+
+  <!--
+    Cache busting: cada arquivo estático abaixo carrega com "?v=APP_VERSION".
+    Como o Cloudflare (e o cache do navegador) guardam a resposta por URL
+    completa, mudar essa query string força buscar a versão nova depois de
+    um deploy, mesmo que o cache antigo ainda não tenha expirado.
+
+    IMPORTANTE: sempre que publicar uma mudança em style.css, app.js,
+    bodymap.js ou data.js, suba o número de versão AQUI e também na
+    constante APP_VERSION no topo do sw.js (mantendo os dois iguais).
+  -->
+  <link rel="stylesheet" href="style.css?v=3"/>
 </head>
 <body>
   <div class="app-shell">
@@ -105,8 +121,8 @@
 
   <input type="file" id="input-importar-json" accept="application/json" hidden/>
 
-  <script src="data.js"></script>
-  <script src="bodymap.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=3"></script>
+  <script src="bodymap.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
