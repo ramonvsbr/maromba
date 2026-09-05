@@ -20,7 +20,7 @@
    'activate' a descartar o cache antigo e o 'install' a baixar tudo de
    novo). Se só um dos dois for atualizado, o navegador pode acabar
    comparando um HTML novo com JS/CSS velhos (ou vice-versa). */
-const APP_VERSION = '3';
+const APP_VERSION = '4';
 const CACHE_NAME = `maromba-cache-v${APP_VERSION}`;
 const ARQUIVOS_ESTATICOS = [
   './',
@@ -40,7 +40,18 @@ const ARQUIVOS_ESTATICOS = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ARQUIVOS_ESTATICOS))
+      .then(cache =>
+        // Usa cache.add() um por um (em vez de cache.addAll) porque addAll
+        // é tudo-ou-nada: se UM arquivo da lista der 404 (ex.: um ícone que
+        // ainda não subiu pro servidor), o install inteiro falha e o
+        // service worker novo nunca entra no ar. Assim, um arquivo faltando
+        // só fica de fora do cache, sem travar o resto.
+        Promise.all(
+          ARQUIVOS_ESTATICOS.map(url =>
+            cache.add(url).catch(err => console.warn('SW: falha ao cachear', url, err))
+          )
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });
@@ -64,18 +75,30 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.match(event.request).then(cached => {
-      const networkFetch = fetch(event.request)
-        .then(resp => {
-          if (resp && resp.status === 200) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
-          return resp;
-        })
-        .catch(() => cached); // offline: cai pro que tiver em cache
-
-      // responde rápido com o cache se existir, e atualiza em segundo plano
-      return cached || networkFetch;
+      if (cached) {
+        // Tem cache: responde na hora e atualiza em segundo plano. Se a
+        // rede falhar aqui, não tem problema — quem recebeu a resposta já
+        // recebeu o `cached`, então o erro de rede pode ser ignorado.
+        fetch(event.request)
+          .then(resp => {
+            if (resp && resp.status === 200) {
+              caches.open(CACHE_NAME).then(cache => cache.put(event.request, resp.clone()));
+            }
+          })
+          .catch(() => {});
+        return cached;
+      }
+      // Sem cache: PRECISA da rede. Deixa a promise da rede seguir "crua"
+      // (sem .catch(() => undefined)) pra, se ela falhar, o navegador
+      // receber o erro de rede de verdade em vez de um respondWith(undefined)
+      // — que é o que gera aquele "ERR_FAILED" genérico na tela.
+      return fetch(event.request).then(resp => {
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return resp;
+      });
     })
   );
 });
