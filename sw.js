@@ -20,7 +20,7 @@
    'activate' a descartar o cache antigo e o 'install' a baixar tudo de
    novo). Se só um dos dois for atualizado, o navegador pode acabar
    comparando um HTML novo com JS/CSS velhos (ou vice-versa). */
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 const CACHE_NAME = `maromba-cache-v${APP_VERSION}`;
 const ARQUIVOS_ESTATICOS = [
   './',

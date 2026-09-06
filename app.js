@@ -313,6 +313,9 @@ function render() {
   // atual é uma das que moraram pra dentro do menu (histórico/equipamentos/exercícios).
   const navMoreToggle = document.getElementById('btn-nav-more');
   if (navMoreToggle) navMoreToggle.classList.toggle('active', ['historico', 'equipamentos', 'exercicios'].includes(currentTab));
+  // FAB de "adicionar treino" só faz sentido na aba Meus treinos.
+  const fabAdd = document.getElementById('fab-add');
+  if (fabAdd) fabAdd.classList.toggle('fab-hidden', currentTab !== 'meus-treinos');
   const ativaBtn = document.querySelector('.nav-btn[data-tab="sessao"]');
   if (ativaBtn) ativaBtn.classList.toggle('has-live', !!getSessaoAtiva());
 
