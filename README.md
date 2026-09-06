@@ -33,8 +33,9 @@ funciona `npx serve .` na mesma pasta.
 - `index.html` — estrutura da página e navegação
 - `style.css` — visual
 - `data.js` — lista de equipamentos, músculos e a biblioteca de exercícios
+- `taco.js` — base de alimentos com dados nutricionais (baseada na Tabela TACO), usada na aba Dieta
 - `bodymap.js` — silhueta (frente/costas) usada para destacar os músculos trabalhados
-- `app.js` — toda a lógica: telas, sessão de treino, histórico e gráfico de evolução
+- `app.js` — toda a lógica: telas, sessão de treino, histórico, dieta, água (com lembretes) e gráfico de evolução
 - `manifest.json` — metadados do PWA (nome, ícone, cor do tema)
 - `sw.js` — service worker que cacheia os arquivos estáticos pra funcionar offline
 - `icons/` — ícones do app usados no manifest e ao instalar no celular
@@ -63,9 +64,45 @@ funciona `npx serve .` na mesma pasta.
 6. **Histórico** — todas as sessões salvas, com data, duração e séries feitas. O
    gráfico no topo mostra a evolução de carga (maior peso por sessão) de um exercício
    escolhido, pra acompanhar sua progressão ao longo do tempo.
-7. **Ajustes → Dados** — exporte um arquivo `.json` com todo o seu backup (equipamentos,
-   treinos e histórico) ou importe um arquivo pra restaurar/migrar seus dados pra
-   outro navegador ou aparelho.
+7. **Dieta** — registre suas refeições do dia: horário, nome (ex.: "Café da manhã",
+   "Almoço") e os ingredientes que a compõem, com a quantidade em gramas. Os dados
+   nutricionais de cada ingrediente vêm da **Tabela TACO** (Tabela Brasileira de
+   Composição de Alimentos, NEPA/UNICAMP) — busque o alimento pelo nome, escolha a
+   quantidade e clique em "Adicionar". Cada refeição salva mostra, na lista do dia,
+   o nome, o horário e um resumo de calorias e macros (proteínas, carboidratos e
+   gorduras); clique nela pra abrir o detalhe com cada ingrediente e sua quantidade.
+   O topo da tela soma as calorias e macros de todas as refeições do dia selecionado
+   (use as setas ou o campo de data pra navegar entre os dias). Se um alimento não
+   estiver na tabela, cadastre um **alimento personalizado** informando os valores
+   nutricionais por 100g (do rótulo da embalagem, por exemplo). Os valores da TACO
+   são uma referência média — o preparo real (tempero, marca, ponto de cozimento)
+   pode variar um pouco o resultado.
+   Use **"Definir meta"** (ou "Editar meta") pra informar quanto pretende consumir
+   de calorias e de cada macro por dia; deixe um campo em 0 pra não acompanhar
+   aquele valor específico. Com a meta definida, a tela mostra o quanto já foi
+   consumido no dia frente à meta, com uma barra de progresso por calorias/macro
+   (a barra fica vermelha se você já passou da meta naquele item).
+8. **Água** — registre sua ingestão de água ao longo do dia. Toque num dos botões de
+   medida rápida (200, 250, 300, 500, 750 ou 1000 ml) ou digite uma quantidade
+   personalizada e clique em "Adicionar". O topo da tela mostra o total bebido no
+   dia e, se você definir uma meta, uma barra de progresso (fica vermelha se você
+   já passou da meta). Use as setas ou o campo de data pra ver/editar dias
+   anteriores; cada registro pode ser excluído individualmente.
+   Em **"Meta e lembretes"** você define:
+   - a **meta diária** em ml;
+   - os horários de **acordar** e **dormir** (os lembretes nunca disparam fora
+     dessa janela);
+   - de quanto em quanto tempo (em minutos) quer ser lembrado;
+   - e pode **ativar as notificações** (o navegador vai pedir permissão).
+
+   > Importante: como o Maromba não tem servidor, os lembretes só funcionam
+   > enquanto o app estiver **aberto** (uma aba do navegador, ou o app instalado
+   > rodando em segundo plano). Não é possível mandar notificação com o app
+   > totalmente fechado — pra isso seria necessário um servidor de push, o que
+   > vai contra a proposta 100% local do app.
+9. **Ajustes → Dados** — exporte um arquivo `.json` com todo o seu backup (equipamentos,
+   treinos, histórico, dieta, água e alimentos personalizados) ou importe um arquivo
+   pra restaurar/migrar seus dados pra outro navegador ou aparelho.
 
 ## Sobre "carga, repetições, peso e pausa"
 
@@ -77,7 +114,9 @@ entre séries). Se você usava "carga" com outro sentido, é só me falar que eu
 
 Como tudo fica no navegador, vale exportar de vez em quando. Vá em **Ajustes → Dados**:
 
-- **Exportar backup (.json)** baixa um arquivo com equipamentos, treinos e histórico.
+- **Exportar backup (.json)** baixa um arquivo com equipamentos, treinos, histórico,
+  dieta, a meta diária de calorias/macros, os registros de água e a
+  configuração de meta/lembretes de água.
 - **Importar backup (.json)** lê um arquivo exportado e **substitui** os dados atuais
   deste navegador (peça confirmação antes de sobrescrever).
 
@@ -93,6 +132,11 @@ copy(JSON.stringify({
   equipamentos: localStorage.getItem('maromba_equipamentos'),
   treinos: localStorage.getItem('maromba_treinos'),
   historico: localStorage.getItem('maromba_historico'),
+  dieta: localStorage.getItem('maromba_dieta'),
+  alimentosPersonalizados: localStorage.getItem('maromba_alimentos_personalizados'),
+  metaDieta: localStorage.getItem('maromba_meta_dieta'),
+  agua: localStorage.getItem('maromba_agua'),
+  aguaConfig: localStorage.getItem('maromba_agua_config'),
 }))
 ```
 

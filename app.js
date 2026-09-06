@@ -10,6 +10,11 @@ const STORAGE_KEYS = {
   HIST: 'maromba_historico',
   ATIVA: 'maromba_sessao_ativa',
   CUSTOM: 'maromba_exercicios_personalizados',
+  DIETA: 'maromba_dieta',
+  CUSTOM_ALIMENTOS: 'maromba_alimentos_personalizados',
+  META_DIETA: 'maromba_meta_dieta',
+  AGUA: 'maromba_agua',
+  AGUA_CONFIG: 'maromba_agua_config',
 };
 
 function loadJSON(key, fallback) {
@@ -43,11 +48,51 @@ function setCustomExercises(arr) { saveJSON(STORAGE_KEYS.CUSTOM, arr); syncCusto
 // com o que está salvo, pra exerciseById()/allExercises() sempre enxergarem
 // os exercícios personalizados mais recentes.
 function syncCustomExercises() { CUSTOM_EXERCISES = getCustomExercises(); }
+function getDieta() { return loadJSON(STORAGE_KEYS.DIETA, []); }
+function setDieta(arr) { saveJSON(STORAGE_KEYS.DIETA, arr); }
+function getCustomFoods() { return loadJSON(STORAGE_KEYS.CUSTOM_ALIMENTOS, []); }
+function setCustomFoods(arr) { saveJSON(STORAGE_KEYS.CUSTOM_ALIMENTOS, arr); syncCustomFoods(); }
+// mantém a variável global CUSTOM_FOODS (definida em taco.js) em dia com o
+// que está salvo, pra foodById()/allFoods() sempre enxergarem os alimentos
+// personalizados mais recentes.
+function syncCustomFoods() { CUSTOM_FOODS = getCustomFoods(); }
+// meta diária de calorias/macros, definida pelo usuário na aba Dieta pra
+// comparar com o que foi consumido no dia. Valor 0 (ou ausente) em um campo
+// significa "sem meta definida" pra aquele macro específico.
+function getMetaDieta() { return loadJSON(STORAGE_KEYS.META_DIETA, { kcal: 0, prot: 0, carb: 0, gord: 0 }); }
+function setMetaDieta(obj) { saveJSON(STORAGE_KEYS.META_DIETA, obj); }
+// registros de consumo de água: [{ id, data:'AAAA-MM-DD', horario:'HH:MM', ml }]
+function getAgua() { return loadJSON(STORAGE_KEYS.AGUA, []); }
+function setAgua(arr) { saveJSON(STORAGE_KEYS.AGUA, arr); }
+// config de água: meta diária, janela acordado (pra não notificar de madrugada)
+// e intervalo dos lembretes. ultimaNotificacaoTs guarda quando foi o último
+// lembrete disparado, pra respeitar o intervalo entre um recarregamento de
+// página e outro.
+function getAguaConfig() {
+  return loadJSON(STORAGE_KEYS.AGUA_CONFIG, {
+    metaMl: 2000,
+    acordar: '07:00',
+    dormir: '23:00',
+    intervaloMin: 60,
+    notificacoesAtivas: false,
+    ultimaNotificacaoTs: 0,
+  });
+}
+function setAguaConfig(obj) { saveJSON(STORAGE_KEYS.AGUA_CONFIG, obj); }
 
 // ---------- helpers ----------
 function uid() { return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function formatDateBR(iso) { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
+function shiftDateISO(iso, dias) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+function horaAtualHHMM() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
 
 function formatDuration(sec) {
   sec = Math.max(0, Math.round(sec));
@@ -206,8 +251,16 @@ const MODAL_MONTAR = document.getElementById('modal-montar');
 const MODAL_CONFIG = document.getElementById('modal-config');
 const EXERCICIO_CUSTOM_MOUNT = document.getElementById('exercicio-custom-mount');
 const MODAL_EXERCICIO_CUSTOM = document.getElementById('modal-exercicio-custom');
+const REFEICAO_MOUNT = document.getElementById('refeicao-mount');
+const MODAL_REFEICAO = document.getElementById('modal-refeicao');
+const ALIMENTO_CUSTOM_MOUNT = document.getElementById('alimento-custom-mount');
+const MODAL_ALIMENTO_CUSTOM = document.getElementById('modal-alimento-custom');
+const META_DIETA_MOUNT = document.getElementById('meta-dieta-mount');
+const MODAL_META_DIETA = document.getElementById('modal-meta-dieta');
+const AGUA_CONFIG_MOUNT = document.getElementById('agua-config-mount');
+const MODAL_AGUA_CONFIG = document.getElementById('modal-agua-config');
 
-let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'equipamentos' | 'exercicios'
+let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'equipamentos' | 'exercicios' | 'dieta' | 'agua'
 let draftTreino = null;                   // treino sendo montado/editado
 let musculosAlvoMontagem = new Set();     // grupos musculares marcados na tela "montar treino"
 let filtroMusculo = 'todos';
@@ -218,8 +271,17 @@ let buscaMontagem = {};           // termo de busca por caixa de grupo muscular,
 let draftExercicioCustom = null;  // exercício personalizado sendo cadastrado
 let sessaoHistAberta = null;
 let exercicioGraficoSelecionado = null;
+let dietaData = todayISO();       // dia sendo visualizado na aba Dieta
+let refeicaoAberta = null;        // id da refeição expandida na lista do dia
+let draftRefeicao = null;         // refeição sendo criada/editada no modal
+let buscaAlimentoForm = '';       // termo de busca de alimento dentro do modal de refeição
+let draftAlimentoCustom = null;   // alimento personalizado sendo cadastrado
+let draftMetaDieta = null;        // meta de calorias/macros sendo editada no modal
 let graficoPeriodo = '3m';   // '1m' | '3m' | '6m' | '1a' | 'tudo'
 let graficoZoom = null;      // { inicio: 'AAAA-MM-DD', fim: 'AAAA-MM-DD' } | null — recorte extra por arraste no gráfico
+let aguaData = todayISO();        // dia sendo visualizado na aba Água
+let draftAguaConfig = null;       // config de meta/lembretes de água sendo editada no modal
+const AGUA_PRESETS = [200, 250, 300, 500, 750, 1000]; // ml — medidas rápidas padronizadas
 
 const PERIODOS_GRAFICO = [
   { id: '1m', label: '1 mês' },
@@ -258,6 +320,8 @@ function render() {
     case 'historico': renderHistorico(); break;
     case 'equipamentos': renderEquipamentos(); break;
     case 'exercicios': renderExercicios(); break;
+    case 'dieta': renderDieta(); break;
+    case 'agua': renderAgua(); break;
     default: renderMeusTreinos();
   }
 }
@@ -297,6 +361,49 @@ function openExercicioCustom() {
 function closeExercicioCustom() {
   MODAL_EXERCICIO_CUSTOM.hidden = true;
   draftExercicioCustom = null;
+}
+function openRefeicaoNova() {
+  draftRefeicao = { id: null, data: dietaData, horario: horaAtualHHMM(), nome: '', ingredientes: [] };
+  buscaAlimentoForm = '';
+  MODAL_REFEICAO.hidden = false;
+  renderRefeicaoForm();
+}
+function openRefeicaoEditar(r) {
+  draftRefeicao = JSON.parse(JSON.stringify(r));
+  buscaAlimentoForm = '';
+  MODAL_REFEICAO.hidden = false;
+  renderRefeicaoForm();
+}
+function closeRefeicao() {
+  MODAL_REFEICAO.hidden = true;
+  draftRefeicao = null;
+}
+function openAlimentoCustom() {
+  draftAlimentoCustom = { nome: '', kcal: 0, prot: 0, carb: 0, gord: 0 };
+  MODAL_ALIMENTO_CUSTOM.hidden = false;
+  renderAlimentoCustom();
+}
+function openMetaDieta() {
+  draftMetaDieta = { ...getMetaDieta() };
+  MODAL_META_DIETA.hidden = false;
+  renderMetaDietaForm();
+}
+function closeMetaDieta() {
+  MODAL_META_DIETA.hidden = true;
+  draftMetaDieta = null;
+}
+function closeAlimentoCustom() {
+  MODAL_ALIMENTO_CUSTOM.hidden = true;
+  draftAlimentoCustom = null;
+}
+function openAguaConfig() {
+  draftAguaConfig = { ...getAguaConfig() };
+  MODAL_AGUA_CONFIG.hidden = false;
+  renderAguaConfigForm();
+}
+function closeAguaConfig() {
+  MODAL_AGUA_CONFIG.hidden = true;
+  draftAguaConfig = null;
 }
 
 // ================= EQUIPAMENTOS =================
@@ -351,7 +458,9 @@ function renderDados() {
     <section>
       <p class="hint">
         Hoje: ${getEquip().length} equipamento(s) marcado(s), ${getTreinos().length} treino(s) montado(s),
-        ${getHistorico().length} sessão(ões) no histórico, ${getCustomExercises().length} exercício(s) personalizado(s)${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
+        ${getHistorico().length} sessão(ões) no histórico, ${getCustomExercises().length} exercício(s) personalizado(s),
+        ${getDieta().length} refeição(ões) registrada(s), ${getCustomFoods().length} alimento(s) personalizado(s),
+        ${getAgua().length} registro(s) de água${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
       </p>
       <div class="backup-actions">
         <button id="btn-exportar-dados" class="btn btn-accent">${ICON_DOWNLOAD}Exportar backup (.json)</button>
@@ -377,6 +486,11 @@ function exportarDados() {
       historico: getHistorico(),
       sessaoAtiva: getSessaoAtiva(),
       exerciciosPersonalizados: getCustomExercises(),
+      dieta: getDieta(),
+      alimentosPersonalizados: getCustomFoods(),
+      metaDieta: getMetaDieta(),
+      agua: getAgua(),
+      aguaConfig: getAguaConfig(),
     },
   };
   try {
@@ -424,17 +538,28 @@ function importarDados(file) {
     const treinos = normalizarCampoImportado(bruto.treinos);
     const historico = normalizarCampoImportado(bruto.historico);
     const exerciciosPersonalizados = normalizarCampoImportado(bruto.exerciciosPersonalizados);
-    if (!Array.isArray(equipamentos) && !Array.isArray(treinos) && !Array.isArray(historico) && !Array.isArray(exerciciosPersonalizados)) {
+    const dieta = normalizarCampoImportado(bruto.dieta);
+    const alimentosPersonalizados = normalizarCampoImportado(bruto.alimentosPersonalizados);
+    const agua = normalizarCampoImportado(bruto.agua);
+    if (!Array.isArray(equipamentos) && !Array.isArray(treinos) && !Array.isArray(historico) && !Array.isArray(exerciciosPersonalizados)
+        && !Array.isArray(dieta) && !Array.isArray(alimentosPersonalizados) && !Array.isArray(agua)) {
       toast('Nenhum dado reconhecido nesse arquivo.');
       return;
     }
 
-    showConfirm('Importar vai substituir todos os dados atuais (equipamentos, treinos, histórico e exercícios personalizados) por este arquivo. Continuar?', () => {
+    showConfirm('Importar vai substituir todos os dados atuais (equipamentos, treinos, histórico, exercícios personalizados, dieta, alimentos personalizados, água e metas) por este arquivo. Continuar?', () => {
       if (Array.isArray(equipamentos)) setEquip(equipamentos);
       if (Array.isArray(treinos)) setTreinos(treinos);
       if (Array.isArray(historico)) setHistorico(historico);
       if (Array.isArray(exerciciosPersonalizados)) setCustomExercises(exerciciosPersonalizados);
+      if (Array.isArray(dieta)) setDieta(dieta);
+      if (Array.isArray(alimentosPersonalizados)) setCustomFoods(alimentosPersonalizados);
+      if (Array.isArray(agua)) setAgua(agua);
       if ('sessaoAtiva' in bruto) setSessaoAtiva(normalizarCampoImportado(bruto.sessaoAtiva) || bruto.sessaoAtiva || null);
+      const metaDieta = normalizarCampoImportado(bruto.metaDieta);
+      if (metaDieta && typeof metaDieta === 'object') setMetaDieta(metaDieta);
+      const aguaConfig = normalizarCampoImportado(bruto.aguaConfig);
+      if (aguaConfig && typeof aguaConfig === 'object') setAguaConfig(aguaConfig);
       toast('Dados importados com sucesso!');
       closeConfig();
       currentTab = getSessaoAtiva() ? 'sessao' : 'meus-treinos';
@@ -1491,6 +1616,658 @@ function configurarZoomArrasteCanvas(canvas, ctx, snapshot, pontos, padL, plotW,
   canvas.onpointercancel = onCancel;
 }
 
+// ================= DIETA =================
+function calcTotaisIngredientes(ingredientes) {
+  return ingredientes.reduce((acc, ing) => {
+    acc.kcal += ing.kcal; acc.prot += ing.prot; acc.carb += ing.carb; acc.gord += ing.gord;
+    return acc;
+  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+}
+function calcTotaisRefeicoes(lista) {
+  return lista.reduce((acc, r) => {
+    const t = calcTotaisIngredientes(r.ingredientes);
+    acc.kcal += t.kcal; acc.prot += t.prot; acc.carb += t.carb; acc.gord += t.gord;
+    return acc;
+  }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+}
+function ingredienteFromFood(food, qtd) {
+  const fator = qtd / 100;
+  return {
+    alimentoId: food.id,
+    nome: food.nome,
+    quantidade: qtd,
+    kcal: food.kcal * fator,
+    prot: food.prot * fator,
+    carb: food.carb * fator,
+    gord: food.gord * fator,
+  };
+}
+// reescala um ingrediente já adicionado pra uma nova quantidade em gramas,
+// a partir da proporção atual (funciona mesmo se o alimento de origem tiver
+// sido excluído da lista de personalizados depois de adicionado à refeição)
+function recalcularIngredienteQtd(ing, novaQtd) {
+  const base = ing.quantidade > 0 ? ing.quantidade : 100;
+  const razao = novaQtd / base;
+  ing.quantidade = novaQtd;
+  ing.kcal *= razao; ing.prot *= razao; ing.carb *= razao; ing.gord *= razao;
+}
+function macroChipsHTML(t) {
+  return `
+    <span class="macro-badge macro-kcal">${Math.round(t.kcal)} kcal</span>
+    <span class="macro-badge">P ${t.prot.toFixed(1)}g</span>
+    <span class="macro-badge">C ${t.carb.toFixed(1)}g</span>
+    <span class="macro-badge">G ${t.gord.toFixed(1)}g</span>`;
+}
+
+// ---------- meta diária de calorias/macros ----------
+function metaDefinida(meta) {
+  return !!meta && (meta.kcal > 0 || meta.prot > 0 || meta.carb > 0 || meta.gord > 0);
+}
+// uma linha de progresso "consumido / meta" com barra; retorna '' se essa
+// meta específica não foi definida (0 ou vazio), pra não mostrar barra zerada
+function metaBarraHTML(label, atual, meta, casasDecimais, unidade) {
+  if (!meta || meta <= 0) return '';
+  const pct = Math.max(0, Math.min(100, Math.round((atual / meta) * 100)));
+  const estourou = atual > meta;
+  const fmt = n => casasDecimais ? n.toFixed(casasDecimais) : Math.round(n);
+  return `
+    <div class="meta-row">
+      <div class="meta-row-head">
+        <span class="meta-row-label">${label}</span>
+        <span class="meta-row-value ${estourou ? 'over' : ''}">${fmt(atual)} / ${fmt(meta)}${unidade}</span>
+      </div>
+      <div class="meta-bar-track">
+        <div class="meta-bar-fill ${estourou ? 'over' : ''}" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+}
+function metaProgressoHTML(totais, meta) {
+  return [
+    metaBarraHTML('Calorias', totais.kcal, meta.kcal, 0, ' kcal'),
+    metaBarraHTML('Proteínas', totais.prot, meta.prot, 1, 'g'),
+    metaBarraHTML('Carboidratos', totais.carb, meta.carb, 1, 'g'),
+    metaBarraHTML('Gorduras', totais.gord, meta.gord, 1, 'g'),
+  ].join('');
+}
+
+function renderDieta() {
+  const doDia = getDieta().filter(r => r.data === dietaData).sort((a, b) => a.horario.localeCompare(b.horario));
+  const totais = calcTotaisRefeicoes(doDia);
+  const meta = getMetaDieta();
+  const temMeta = metaDefinida(meta);
+
+  APP.innerHTML = `
+    <section class="panel">
+      <div class="section-head">
+        <h1>Dieta</h1>
+        <button id="btn-nova-refeicao" class="btn btn-accent btn-small" style="margin-top:0">+ Nova refeição</button>
+      </div>
+      <p class="sub">Registre suas refeições e acompanhe calorias e macros com base na Tabela TACO (valores por 100g; ajuste a gramagem conforme sua embalagem/receita real).</p>
+
+      <div class="date-nav">
+        <button id="btn-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
+        <input type="date" id="dieta-data-input" value="${dietaData}"/>
+        <button id="btn-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
+        <button id="btn-dia-hoje" class="btn btn-ghost btn-small" style="margin-top:0">Hoje</button>
+      </div>
+
+      <div class="stat-strip stat-strip-4">
+        <div class="stat-card"><span class="stat-label">Calorias</span><span class="stat-value">${Math.round(totais.kcal)}${temMeta && meta.kcal > 0 ? ` <span class="stat-value-meta">/ ${Math.round(meta.kcal)}</span>` : ''}</span></div>
+        <div class="stat-card"><span class="stat-label">Proteínas</span><span class="stat-value small">${totais.prot.toFixed(1)}g${temMeta && meta.prot > 0 ? ` <span class="stat-value-meta">/ ${meta.prot.toFixed(1)}g</span>` : ''}</span></div>
+        <div class="stat-card"><span class="stat-label">Carboidratos</span><span class="stat-value small">${totais.carb.toFixed(1)}g${temMeta && meta.carb > 0 ? ` <span class="stat-value-meta">/ ${meta.carb.toFixed(1)}g</span>` : ''}</span></div>
+        <div class="stat-card"><span class="stat-label">Gorduras</span><span class="stat-value small">${totais.gord.toFixed(1)}g${temMeta && meta.gord > 0 ? ` <span class="stat-value-meta">/ ${meta.gord.toFixed(1)}g</span>` : ''}</span></div>
+      </div>
+
+      <div class="meta-dieta-block">
+        <div class="section-head">
+          <h2 class="subtitle" style="margin-top:0;border-top:none;padding-top:0">Meta do dia</h2>
+          <button id="btn-editar-meta" class="btn btn-ghost btn-small" style="margin-top:0">${temMeta ? 'Editar meta' : '+ Definir meta'}</button>
+        </div>
+        ${temMeta
+          ? metaProgressoHTML(totais, meta)
+          : '<p class="hint">Defina quanto pretende consumir de calorias e macros por dia pra comparar com o que já comeu.</p>'}
+      </div>
+
+      <h2 class="subtitle">Refeições de ${formatDateBR(dietaData)}</h2>
+      ${doDia.length
+        ? `<div class="hist-list">${doDia.map(r => refeicaoCardHTML(r)).join('')}</div>`
+        : '<p class="empty">Nenhuma refeição registrada nesse dia. Toque em "+ Nova refeição" pra começar.</p>'}
+    </section>`;
+
+  document.getElementById('btn-nova-refeicao').addEventListener('click', openRefeicaoNova);
+  document.getElementById('btn-editar-meta').addEventListener('click', openMetaDieta);
+  document.getElementById('dieta-data-input').addEventListener('change', e => {
+    dietaData = e.target.value || todayISO();
+    refeicaoAberta = null;
+    render();
+  });
+  document.getElementById('btn-dia-hoje').addEventListener('click', () => {
+    dietaData = todayISO();
+    refeicaoAberta = null;
+    render();
+  });
+  document.getElementById('btn-dia-anterior').addEventListener('click', () => {
+    dietaData = shiftDateISO(dietaData, -1);
+    refeicaoAberta = null;
+    render();
+  });
+  document.getElementById('btn-dia-proximo').addEventListener('click', () => {
+    dietaData = shiftDateISO(dietaData, 1);
+    refeicaoAberta = null;
+    render();
+  });
+
+  APP.querySelectorAll('[data-refeicao-toggle]').forEach(card => {
+    card.addEventListener('click', () => {
+      refeicaoAberta = refeicaoAberta === card.dataset.refeicaoToggle ? null : card.dataset.refeicaoToggle;
+      renderDieta();
+    });
+  });
+  APP.querySelectorAll('[data-edit-refeicao]').forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const r = getDieta().find(x => x.id === btn.dataset.editRefeicao);
+      if (r) openRefeicaoEditar(r);
+    });
+  });
+  APP.querySelectorAll('[data-del-refeicao]').forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      showConfirm('Excluir esta refeição?', () => {
+        setDieta(getDieta().filter(x => x.id !== btn.dataset.delRefeicao));
+        refeicaoAberta = null;
+        renderDieta();
+        toast('Refeição excluída.');
+      });
+    });
+  });
+}
+
+function refeicaoCardHTML(r) {
+  const aberto = refeicaoAberta === r.id;
+  const t = calcTotaisIngredientes(r.ingredientes);
+  return `
+    <div class="hist-card refeicao-card ${aberto ? 'ex-aberto' : ''}" data-refeicao-toggle="${r.id}">
+      <div class="hist-card-head">
+        <div><strong>${escapeHtml(r.nome)}</strong><span class="hint mono"> — ${r.horario}</span></div>
+        <div class="hist-card-meta">
+          <button class="btn-remove" data-edit-refeicao="${r.id}" title="Editar">${ICON_EDIT}</button>
+          <button class="btn-remove" data-del-refeicao="${r.id}" title="Excluir">✕</button>
+        </div>
+      </div>
+      <div class="macro-row">${macroChipsHTML(t)}</div>
+      ${aberto ? `
+        <div class="draft-list">
+          ${r.ingredientes.length ? r.ingredientes.map(ing => `
+            <div class="draft-row">
+              <div class="draft-row-head">
+                <span class="ex-nome">${escapeHtml(ing.nome)}</span>
+                <span class="hint mono">${ing.quantidade}g</span>
+              </div>
+              <p class="hint">${Math.round(ing.kcal)} kcal · P ${ing.prot.toFixed(1)}g · C ${ing.carb.toFixed(1)}g · G ${ing.gord.toFixed(1)}g</p>
+            </div>`).join('') : '<p class="hint">Nenhum ingrediente adicionado.</p>'}
+        </div>` : ''}
+    </div>`;
+}
+
+function renderRefeicaoForm() {
+  const d = draftRefeicao;
+  const termo = buscaAlimentoForm.trim().toLowerCase();
+  const todosAlimentos = allFoods().slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const opcoes = termo ? todosAlimentos.filter(f => f.nome.toLowerCase().includes(termo)) : todosAlimentos;
+  const totais = calcTotaisIngredientes(d.ingredientes);
+
+  REFEICAO_MOUNT.innerHTML = `
+    <section>
+      <h1>${d.id ? 'Editar refeição' : 'Nova refeição'}</h1>
+      <p class="sub">Dê um nome, defina o horário e adicione os ingredientes com a quantidade em gramas.</p>
+
+      <div class="field-row-inline">
+        <label>Data<input type="date" id="refeicao-data" value="${d.data}"/></label>
+        <label>Horário<input type="time" id="refeicao-horario" value="${d.horario}"/></label>
+      </div>
+      <div class="field-row">
+        <label>Nome da refeição</label>
+        <input type="text" id="refeicao-nome" placeholder="Ex.: Café da manhã, Almoço, Lanche..." value="${escapeHtml(d.nome)}"/>
+      </div>
+
+      <h2 class="subtitle">Ingredientes</h2>
+      <div class="muscle-add-box">
+        <input type="text" class="input-busca-musculo" id="busca-alimento" placeholder="Buscar alimento na Tabela TACO..." value="${escapeHtml(buscaAlimentoForm)}"/>
+        <div class="add-row">
+          <select id="sel-alimento" ${opcoes.length === 0 ? 'disabled' : ''}>
+            ${opcoes.length
+              ? opcoes.map(f => `<option value="${f.id}">${escapeHtml(f.nome)} (${f.kcal} kcal/100g)</option>`).join('')
+              : '<option>Nenhum alimento encontrado com essa busca</option>'}
+          </select>
+          <input type="number" id="qtd-alimento" min="1" step="1" value="100" style="width:90px"/>
+          <span class="hint" style="align-self:center">gramas</span>
+          <button class="btn" id="btn-add-alimento" ${opcoes.length === 0 ? 'disabled' : ''}>Adicionar</button>
+        </div>
+        <button id="btn-novo-alimento-custom" class="btn btn-ghost btn-small">+ Cadastrar alimento personalizado</button>
+      </div>
+
+      <div class="draft-list">
+        ${d.ingredientes.length ? d.ingredientes.map((ing, i) => `
+          <div class="draft-row">
+            <div class="draft-row-head">
+              <span class="ex-nome">${escapeHtml(ing.nome)}</span>
+              <button class="btn-remove" data-remove-ingrediente="${i}" title="Remover">✕</button>
+            </div>
+            <div class="draft-fields">
+              <label>Quantidade (g)<input type="number" min="0" step="1" data-idx-ingrediente="${i}" value="${ing.quantidade}"/></label>
+            </div>
+            <p class="hint">${Math.round(ing.kcal)} kcal · P ${ing.prot.toFixed(1)}g · C ${ing.carb.toFixed(1)}g · G ${ing.gord.toFixed(1)}g</p>
+          </div>`).join('') : '<p class="empty">Nenhum ingrediente adicionado ainda.</p>'}
+      </div>
+
+      <div class="summary-bar">
+        <div><span class="summary-label">Calorias</span><div class="summary-value">${Math.round(totais.kcal)} kcal</div></div>
+        <div><span class="summary-label">Proteínas</span><div class="summary-value small">${totais.prot.toFixed(1)}g</div></div>
+        <div><span class="summary-label">Carboidratos</span><div class="summary-value small">${totais.carb.toFixed(1)}g</div></div>
+        <div><span class="summary-label">Gorduras</span><div class="summary-value small">${totais.gord.toFixed(1)}g</div></div>
+      </div>
+
+      <div class="actions-row">
+        <button id="btn-salvar-refeicao" class="btn btn-accent">Salvar refeição</button>
+      </div>
+    </section>`;
+
+  document.getElementById('refeicao-data').addEventListener('input', e => { d.data = e.target.value; });
+  document.getElementById('refeicao-horario').addEventListener('input', e => { d.horario = e.target.value; });
+  document.getElementById('refeicao-nome').addEventListener('input', e => { d.nome = e.target.value; });
+
+  const buscaInput = document.getElementById('busca-alimento');
+  buscaInput.addEventListener('input', e => {
+    buscaAlimentoForm = e.target.value;
+    const pos = e.target.selectionStart;
+    renderRefeicaoForm();
+    const el = document.getElementById('busca-alimento');
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  });
+
+  document.getElementById('btn-add-alimento').addEventListener('click', () => {
+    const sel = document.getElementById('sel-alimento');
+    const qtdInput = document.getElementById('qtd-alimento');
+    if (!sel.value) return;
+    const food = foodById(sel.value);
+    if (!food) return;
+    let qtd = Number(qtdInput.value);
+    if (!qtd || qtd <= 0) qtd = 100;
+    d.ingredientes.push(ingredienteFromFood(food, qtd));
+    renderRefeicaoForm();
+  });
+
+  REFEICAO_MOUNT.querySelectorAll('[data-remove-ingrediente]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      d.ingredientes.splice(Number(btn.dataset.removeIngrediente), 1);
+      renderRefeicaoForm();
+    });
+  });
+  REFEICAO_MOUNT.querySelectorAll('[data-idx-ingrediente]').forEach(input => {
+    input.addEventListener('input', () => {
+      const i = Number(input.dataset.idxIngrediente);
+      let novaQtd = Number(input.value);
+      if (Number.isNaN(novaQtd) || novaQtd < 0) novaQtd = 0;
+      recalcularIngredienteQtd(d.ingredientes[i], novaQtd);
+      const pos = input.selectionStart;
+      renderRefeicaoForm();
+      const el = REFEICAO_MOUNT.querySelector(`[data-idx-ingrediente="${i}"]`);
+      if (el) { el.focus(); el.setSelectionRange(pos, pos); }
+    });
+  });
+
+  document.getElementById('btn-novo-alimento-custom').addEventListener('click', openAlimentoCustom);
+  document.getElementById('btn-salvar-refeicao').addEventListener('click', salvarRefeicao);
+}
+
+function salvarRefeicao() {
+  const d = draftRefeicao;
+  const nome = d.nome.trim();
+  if (!nome) { toast('Dê um nome à refeição antes de salvar.'); return; }
+  if (!d.data) { toast('Informe a data da refeição.'); return; }
+  if (!d.horario) { toast('Informe o horário da refeição.'); return; }
+  if (d.ingredientes.length === 0) { toast('Adicione ao menos um ingrediente.'); return; }
+
+  const lista = getDieta();
+  if (d.id) {
+    const idx = lista.findIndex(r => r.id === d.id);
+    if (idx >= 0) lista[idx] = { ...d, nome };
+  } else {
+    lista.push({ ...d, nome, id: uid() });
+  }
+  setDieta(lista);
+  dietaData = d.data;
+  draftRefeicao = null;
+  closeRefeicao();
+  currentTab = 'dieta';
+  render();
+  toast('Refeição salva!');
+}
+
+// ---------- alimento personalizado (modal, aberto de dentro da refeição) ----------
+function renderAlimentoCustom() {
+  const a = draftAlimentoCustom;
+  ALIMENTO_CUSTOM_MOUNT.innerHTML = `
+    <section>
+      <h1>Novo alimento personalizado</h1>
+      <p class="sub">Cadastre um alimento que não está na Tabela TACO, informando os valores nutricionais por 100g (rótulo da embalagem, por exemplo).</p>
+
+      <div class="field-row">
+        <label>Nome do alimento</label>
+        <input id="alimento-nome" type="text" placeholder="Ex.: Barra de proteína XYZ" value="${escapeHtml(a.nome)}"/>
+      </div>
+      <div class="draft-fields">
+        <label>Calorias (kcal/100g)<input type="number" min="0" step="1" id="alimento-kcal" value="${a.kcal}"/></label>
+        <label>Proteínas (g/100g)<input type="number" min="0" step="0.1" id="alimento-prot" value="${a.prot}"/></label>
+        <label>Carboidratos (g/100g)<input type="number" min="0" step="0.1" id="alimento-carb" value="${a.carb}"/></label>
+        <label>Gorduras (g/100g)<input type="number" min="0" step="0.1" id="alimento-gord" value="${a.gord}"/></label>
+      </div>
+      <div class="actions-row">
+        <button id="btn-salvar-alimento-custom" class="btn btn-accent">Salvar alimento</button>
+      </div>
+
+      ${getCustomFoods().length ? `
+        <h2 class="subtitle">Seus alimentos personalizados</h2>
+        <div class="exlist">
+          ${getCustomFoods().map(f => `
+            <div class="ex-card">
+              <div class="ex-card-head">
+                <span class="ex-nome">${escapeHtml(f.nome)}</span>
+                <button class="btn-remove" data-del-alimento-custom="${f.id}" title="Excluir">✕</button>
+              </div>
+              <p class="hint">${f.kcal} kcal · P ${f.prot}g · C ${f.carb}g · G ${f.gord}g (por 100g)</p>
+            </div>`).join('')}
+        </div>` : ''}
+    </section>`;
+
+  document.getElementById('alimento-nome').addEventListener('input', e => { a.nome = e.target.value; });
+  document.getElementById('alimento-kcal').addEventListener('input', e => { a.kcal = Number(e.target.value) || 0; });
+  document.getElementById('alimento-prot').addEventListener('input', e => { a.prot = Number(e.target.value) || 0; });
+  document.getElementById('alimento-carb').addEventListener('input', e => { a.carb = Number(e.target.value) || 0; });
+  document.getElementById('alimento-gord').addEventListener('input', e => { a.gord = Number(e.target.value) || 0; });
+  document.getElementById('btn-salvar-alimento-custom').addEventListener('click', salvarAlimentoCustom);
+  ALIMENTO_CUSTOM_MOUNT.querySelectorAll('[data-del-alimento-custom]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showConfirm('Excluir este alimento personalizado?', () => {
+        setCustomFoods(getCustomFoods().filter(f => f.id !== btn.dataset.delAlimentoCustom));
+        renderAlimentoCustom();
+        toast('Alimento personalizado excluído.');
+      });
+    });
+  });
+}
+
+function salvarAlimentoCustom() {
+  const a = draftAlimentoCustom;
+  const nome = a.nome.trim();
+  if (!nome) { toast('Dê um nome ao alimento antes de salvar.'); return; }
+  const foods = getCustomFoods();
+  foods.push({ id: uid(), nome, kcal: a.kcal, prot: a.prot, carb: a.carb, gord: a.gord, personalizado: true });
+  setCustomFoods(foods);
+  closeAlimentoCustom();
+  if (draftRefeicao) renderRefeicaoForm(); // atualiza a lista de alimentos disponíveis no formulário aberto
+  toast('Alimento personalizado salvo!');
+}
+
+// ---------- meta de dieta (modal) ----------
+function renderMetaDietaForm() {
+  const m = draftMetaDieta;
+  META_DIETA_MOUNT.innerHTML = `
+    <section>
+      <h1>Meta diária</h1>
+      <p class="sub">Defina quanto você pretende consumir de calorias e macros por dia. Deixe um campo em 0 pra não acompanhar aquele valor.</p>
+
+      <div class="draft-fields">
+        <label>Calorias (kcal/dia)<input type="number" min="0" step="1" id="meta-kcal" value="${m.kcal}"/></label>
+        <label>Proteínas (g/dia)<input type="number" min="0" step="1" id="meta-prot" value="${m.prot}"/></label>
+        <label>Carboidratos (g/dia)<input type="number" min="0" step="1" id="meta-carb" value="${m.carb}"/></label>
+        <label>Gorduras (g/dia)<input type="number" min="0" step="1" id="meta-gord" value="${m.gord}"/></label>
+      </div>
+
+      <div class="actions-row">
+        <button id="btn-salvar-meta" class="btn btn-accent">Salvar meta</button>
+        ${metaDefinida(m) ? '<button id="btn-limpar-meta" class="btn btn-ghost">Remover meta</button>' : ''}
+      </div>
+    </section>`;
+
+  document.getElementById('meta-kcal').addEventListener('input', e => { m.kcal = Number(e.target.value) || 0; });
+  document.getElementById('meta-prot').addEventListener('input', e => { m.prot = Number(e.target.value) || 0; });
+  document.getElementById('meta-carb').addEventListener('input', e => { m.carb = Number(e.target.value) || 0; });
+  document.getElementById('meta-gord').addEventListener('input', e => { m.gord = Number(e.target.value) || 0; });
+  document.getElementById('btn-salvar-meta').addEventListener('click', salvarMetaDieta);
+  const btnLimpar = document.getElementById('btn-limpar-meta');
+  if (btnLimpar) {
+    btnLimpar.addEventListener('click', () => {
+      showConfirm('Remover a meta diária de calorias e macros?', () => {
+        setMetaDieta({ kcal: 0, prot: 0, carb: 0, gord: 0 });
+        closeMetaDieta();
+        if (currentTab === 'dieta') renderDieta();
+        toast('Meta removida.');
+      });
+    });
+  }
+}
+function salvarMetaDieta() {
+  setMetaDieta({ ...draftMetaDieta });
+  closeMetaDieta();
+  if (currentTab === 'dieta') renderDieta();
+  toast('Meta salva!');
+}
+
+// ================= ÁGUA =================
+function totalAguaDia(data) {
+  return getAgua().filter(r => r.data === data).reduce((soma, r) => soma + r.ml, 0);
+}
+
+function adicionarAgua(ml) {
+  ml = Math.round(Number(ml));
+  if (!ml || ml <= 0) { toast('Informe uma quantidade de água válida.'); return; }
+  const arr = getAgua();
+  arr.push({ id: uid(), data: aguaData, horario: horaAtualHHMM(), ml });
+  setAgua(arr);
+  renderAgua();
+  toast(`+${ml} ml registrado!`);
+}
+
+function renderAgua() {
+  const config = getAguaConfig();
+  const doDia = getAgua().filter(r => r.data === aguaData).sort((a, b) => a.horario.localeCompare(b.horario));
+  const total = doDia.reduce((soma, r) => soma + r.ml, 0);
+  const temMeta = config.metaMl > 0;
+  const pct = temMeta ? Math.max(0, Math.min(100, Math.round((total / config.metaMl) * 100))) : 0;
+  const estourou = temMeta && total > config.metaMl;
+
+  APP.innerHTML = `
+    <section class="panel">
+      <div class="section-head">
+        <h1>Água</h1>
+        <button id="btn-agua-config" class="btn btn-ghost btn-small" style="margin-top:0">Meta e lembretes</button>
+      </div>
+      <p class="sub">Registre sua ingestão de água ao longo do dia e acompanhe sua meta diária.</p>
+
+      <div class="date-nav">
+        <button id="btn-agua-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
+        <input type="date" id="agua-data-input" value="${aguaData}"/>
+        <button id="btn-agua-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
+        <button id="btn-agua-dia-hoje" class="btn btn-ghost btn-small" style="margin-top:0">Hoje</button>
+      </div>
+
+      <div class="agua-progress-block">
+        <div class="agua-progress-head">
+          <span class="agua-total">${total} <span class="hint">ml</span></span>
+          ${temMeta
+            ? `<span class="meta-row-value ${estourou ? 'over' : ''}">${pct}% da meta de ${config.metaMl} ml</span>`
+            : '<span class="hint">Nenhuma meta definida — toque em "Meta e lembretes".</span>'}
+        </div>
+        ${temMeta ? `
+          <div class="meta-bar-track">
+            <div class="meta-bar-fill ${estourou ? 'over' : ''}" style="width:${pct}%"></div>
+          </div>` : ''}
+      </div>
+
+      <h2 class="subtitle">Adicionar</h2>
+      <p class="hint">Medidas rápidas (ml):</p>
+      <div class="agua-presets">
+        ${AGUA_PRESETS.map(ml => `<button class="btn btn-ghost agua-preset-btn" data-agua-preset="${ml}">+${ml} ml</button>`).join('')}
+      </div>
+      <div class="actions-row">
+        <input type="number" min="1" step="1" id="agua-custom-ml" placeholder="Quantidade em ml"/>
+        <button id="btn-agua-add-custom" class="btn btn-accent">Adicionar</button>
+      </div>
+
+      <h2 class="subtitle">Registros de ${formatDateBR(aguaData)}</h2>
+      ${doDia.length ? `
+        <div class="hist-list">
+          ${doDia.map(r => `
+            <div class="hist-card agua-card">
+              <div class="hist-card-head">
+                <div><strong>${r.ml} ml</strong><span class="hint mono"> — ${r.horario}</span></div>
+                <button class="btn-remove" data-del-agua="${r.id}" title="Excluir">✕</button>
+              </div>
+            </div>`).join('')}
+        </div>` : '<p class="empty">Nenhum registro nesse dia ainda. Use os botões acima pra começar.</p>'}
+    </section>`;
+
+  document.getElementById('btn-agua-config').addEventListener('click', openAguaConfig);
+  document.getElementById('agua-data-input').addEventListener('change', e => {
+    aguaData = e.target.value || todayISO();
+    render();
+  });
+  document.getElementById('btn-agua-dia-hoje').addEventListener('click', () => { aguaData = todayISO(); render(); });
+  document.getElementById('btn-agua-dia-anterior').addEventListener('click', () => { aguaData = shiftDateISO(aguaData, -1); render(); });
+  document.getElementById('btn-agua-dia-proximo').addEventListener('click', () => { aguaData = shiftDateISO(aguaData, 1); render(); });
+
+  APP.querySelectorAll('[data-agua-preset]').forEach(btn => {
+    btn.addEventListener('click', () => adicionarAgua(Number(btn.dataset.aguaPreset)));
+  });
+  const inputCustom = document.getElementById('agua-custom-ml');
+  document.getElementById('btn-agua-add-custom').addEventListener('click', () => {
+    adicionarAgua(Number(inputCustom.value));
+    inputCustom.value = '';
+  });
+  inputCustom.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { adicionarAgua(Number(inputCustom.value)); inputCustom.value = ''; }
+  });
+
+  APP.querySelectorAll('[data-del-agua]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showConfirm('Excluir este registro de água?', () => {
+        setAgua(getAgua().filter(r => r.id !== btn.dataset.delAgua));
+        renderAgua();
+        toast('Registro excluído.');
+      });
+    });
+  });
+}
+
+// ---------- config de meta e lembretes (modal) ----------
+function renderAguaConfigForm() {
+  const c = draftAguaConfig;
+  const suportaNotificacao = 'Notification' in window;
+  const permissao = suportaNotificacao ? Notification.permission : 'unsupported';
+
+  AGUA_CONFIG_MOUNT.innerHTML = `
+    <section>
+      <h1>Meta e lembretes de água</h1>
+      <p class="sub">Defina quanto pretende beber por dia e, se quiser, ative lembretes periódicos enquanto o app estiver aberto.</p>
+
+      <div class="draft-fields">
+        <label>Meta diária (ml)<input type="number" min="0" step="50" id="agua-cfg-meta" value="${c.metaMl}"/></label>
+        <label>Acordar<input type="time" id="agua-cfg-acordar" value="${c.acordar}"/></label>
+        <label>Dormir<input type="time" id="agua-cfg-dormir" value="${c.dormir}"/></label>
+        <label>Lembrar a cada (min)<input type="number" min="5" step="5" id="agua-cfg-intervalo" value="${c.intervaloMin}"/></label>
+      </div>
+      <p class="hint">Os lembretes só disparam entre o horário de acordar e o de dormir — nada de notificação de madrugada.</p>
+
+      <h2 class="subtitle">Notificações</h2>
+      <label class="chk-inline">
+        <input type="checkbox" id="agua-cfg-notif" ${c.notificacoesAtivas ? 'checked' : ''} ${!suportaNotificacao || permissao === 'denied' ? 'disabled' : ''}/>
+        <span>Ativar lembretes por notificação</span>
+      </label>
+      ${!suportaNotificacao ? '<p class="missing">Este navegador não suporta notificações.</p>' : ''}
+      ${suportaNotificacao && permissao === 'denied' ? '<p class="missing">As notificações estão bloqueadas nas permissões do navegador/site. Libere o acesso e tente de novo.</p>' : ''}
+      <p class="hint">Funciona só enquanto o app estiver aberto (uma aba ou instalado na tela inicial) — sem servidor, não é possível notificar com o app totalmente fechado.</p>
+
+      <div class="actions-row">
+        <button id="btn-salvar-agua-cfg" class="btn btn-accent">Salvar</button>
+      </div>
+    </section>`;
+
+  document.getElementById('agua-cfg-meta').addEventListener('input', e => { c.metaMl = Math.max(0, Number(e.target.value) || 0); });
+  document.getElementById('agua-cfg-acordar').addEventListener('input', e => { c.acordar = e.target.value || c.acordar; });
+  document.getElementById('agua-cfg-dormir').addEventListener('input', e => { c.dormir = e.target.value || c.dormir; });
+  document.getElementById('agua-cfg-intervalo').addEventListener('input', e => { c.intervaloMin = Math.max(5, Number(e.target.value) || 60); });
+
+  const chkNotif = document.getElementById('agua-cfg-notif');
+  chkNotif.addEventListener('change', () => {
+    if (!chkNotif.checked) { c.notificacoesAtivas = false; return; }
+    if (!suportaNotificacao) { toast('Este navegador não suporta notificações.'); chkNotif.checked = false; return; }
+    if (Notification.permission === 'granted') { c.notificacoesAtivas = true; return; }
+    Notification.requestPermission().then(perm => {
+      if (perm === 'granted') { c.notificacoesAtivas = true; toast('Notificações ativadas!'); }
+      else { c.notificacoesAtivas = false; chkNotif.checked = false; toast('Permissão de notificação negada.'); }
+    });
+  });
+
+  document.getElementById('btn-salvar-agua-cfg').addEventListener('click', salvarAguaConfig);
+}
+
+function salvarAguaConfig() {
+  const atual = getAguaConfig();
+  setAguaConfig({ ...draftAguaConfig, ultimaNotificacaoTs: atual.ultimaNotificacaoTs || 0 });
+  closeAguaConfig();
+  if (currentTab === 'agua') renderAgua();
+  toast('Configurações de água salvas!');
+}
+
+// ---------- lembretes periódicos ----------
+// true se "agora" está entre acordar e dormir (trata o caso em que dormir
+// é "no dia seguinte", ex.: acorda 07:00 / dorme 23:00, ou o inverso pra
+// quem trabalha à noite, ex.: acorda 22:00 / dorme 06:00).
+function estaNoHorarioAcordado(agora, acordar, dormir) {
+  const [ah, am] = acordar.split(':').map(Number);
+  const [dh, dm] = dormir.split(':').map(Number);
+  const minsAgora = agora.getHours() * 60 + agora.getMinutes();
+  const minsAcordar = ah * 60 + am;
+  const minsDormir = dh * 60 + dm;
+  if (minsAcordar === minsDormir) return true; // horários iguais = sem janela de silêncio
+  if (minsAcordar < minsDormir) return minsAgora >= minsAcordar && minsAgora < minsDormir;
+  return minsAgora >= minsAcordar || minsAgora < minsDormir;
+}
+
+function dispararNotificacaoAgua(config) {
+  const total = totalAguaDia(todayISO());
+  const titulo = '💧 Hora de beber água';
+  const corpo = config.metaMl > 0
+    ? `${total} ml de ${config.metaMl} ml bebidos hoje. Bora beber mais um pouco?`
+    : `${total} ml bebidos hoje. Bora beber mais um pouco?`;
+  const opts = { body: corpo, tag: 'maromba-agua', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
+  if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg && reg.showNotification) reg.showNotification(titulo, opts);
+      else new Notification(titulo, opts);
+    }).catch(() => { try { new Notification(titulo, opts); } catch (e) { /* silencioso */ } });
+  } else {
+    try { new Notification(titulo, opts); } catch (e) { /* silencioso */ }
+  }
+}
+
+function checkAguaNotificacao() {
+  const config = getAguaConfig();
+  if (!config.notificacoesAtivas) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const agora = new Date();
+  if (!estaNoHorarioAcordado(agora, config.acordar, config.dormir)) return;
+  const intervaloMs = Math.max(5, config.intervaloMin) * 60 * 1000;
+  const ultima = config.ultimaNotificacaoTs || 0;
+  if (agora.getTime() - ultima < intervaloMs) return;
+  dispararNotificacaoAgua(config);
+  config.ultimaNotificacaoTs = agora.getTime();
+  setAguaConfig(config);
+}
+
 // ================= INIT =================
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
@@ -1502,14 +2279,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-config').addEventListener('click', openConfig);
   document.getElementById('btn-close-config').addEventListener('click', closeConfig);
   document.getElementById('btn-close-exercicio-custom').addEventListener('click', closeExercicioCustom);
+  document.getElementById('btn-close-refeicao').addEventListener('click', closeRefeicao);
+  document.getElementById('btn-close-alimento-custom').addEventListener('click', closeAlimentoCustom);
+  document.getElementById('btn-close-meta-dieta').addEventListener('click', closeMetaDieta);
+  document.getElementById('btn-close-agua-config').addEventListener('click', closeAguaConfig);
 
   MODAL_MONTAR.addEventListener('click', e => { if (e.target === MODAL_MONTAR) closeMontar(); });
   MODAL_CONFIG.addEventListener('click', e => { if (e.target === MODAL_CONFIG) closeConfig(); });
   MODAL_EXERCICIO_CUSTOM.addEventListener('click', e => { if (e.target === MODAL_EXERCICIO_CUSTOM) closeExercicioCustom(); });
+  MODAL_REFEICAO.addEventListener('click', e => { if (e.target === MODAL_REFEICAO) closeRefeicao(); });
+  MODAL_ALIMENTO_CUSTOM.addEventListener('click', e => { if (e.target === MODAL_ALIMENTO_CUSTOM) closeAlimentoCustom(); });
+  MODAL_META_DIETA.addEventListener('click', e => { if (e.target === MODAL_META_DIETA) closeMetaDieta(); });
+  MODAL_AGUA_CONFIG.addEventListener('click', e => { if (e.target === MODAL_AGUA_CONFIG) closeAguaConfig(); });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     const modalConfirm = document.getElementById('modal-confirm');
     if (!modalConfirm.hidden) { document.getElementById('btn-confirm-cancel').click(); return; }
+    if (!MODAL_ALIMENTO_CUSTOM.hidden) { closeAlimentoCustom(); return; }
+    if (!MODAL_AGUA_CONFIG.hidden) { closeAguaConfig(); return; }
+    if (!MODAL_META_DIETA.hidden) { closeMetaDieta(); return; }
+    if (!MODAL_REFEICAO.hidden) { closeRefeicao(); return; }
     if (!MODAL_MONTAR.hidden) closeMontar();
     if (!MODAL_CONFIG.hidden) closeConfig();
     if (!MODAL_EXERCICIO_CUSTOM.hidden) closeExercicioCustom();
@@ -1522,6 +2311,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   syncCustomExercises();
+  syncCustomFoods();
   if (getSessaoAtiva()) currentTab = 'sessao';
   render();
 
@@ -1531,4 +2321,10 @@ document.addEventListener('DOMContentLoaded', () => {
       navigator.serviceWorker.register('./sw.js').catch(e => console.warn('Service worker não registrado', e));
     });
   }
+
+  // ---------- lembretes de água ----------
+  // Roda em qualquer aba (não só na aba "Água"), enquanto o app estiver
+  // aberto — sem servidor/push, não dá pra notificar com o app fechado.
+  checkAguaNotificacao();
+  setInterval(checkAguaNotificacao, 60 * 1000);
 });

@@ -262,12 +262,13 @@ svg{ display:block; }
 /* ---------- filtros / exercícios ---------- */
 .filters-row{ display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin: 0 0 18px; }
 .filters-row input[type=text]{ min-width: 220px; flex: 1 1 220px; max-width: 320px; }
-select, input[type=text], input[type=number]{
+select, input[type=text], input[type=number], input[type=date], input[type=time]{
   background: var(--surface-2); color: var(--text); border:1px solid var(--line);
   border-radius: var(--radius); padding: 8px 10px; font-size:14px;
 }
 select:focus, input:focus{ border-color: var(--chalk); }
 input[type=number]{ width: 78px; font-family: var(--font-mono); }
+input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme: dark; }
 .chk-inline{ display:flex; align-items:center; gap:8px; color: var(--text-muted); font-size:14px; cursor:pointer; }
 .chk-inline input{ accent-color: var(--chalk); }
 
@@ -409,6 +410,51 @@ input[type=number]{ width: 78px; font-family: var(--font-mono); }
 .hist-card.ex-aberto{ border-color: var(--chalk); }
 .hist-card-head{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .hist-card-meta{ display:flex; align-items:center; gap:12px; }
+
+/* ---------- dieta ---------- */
+.stat-value-meta{ font-size:13px; font-weight:600; color: var(--text-muted); }
+
+/* ---------- meta diária de dieta ---------- */
+.meta-dieta-block{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 16px 18px 6px; margin-bottom: 28px;
+}
+.meta-dieta-block .section-head{ margin: 0 0 10px; }
+.meta-dieta-block .subtitle{ font-size:15px; }
+.meta-row{ margin-bottom: 14px; }
+.meta-row-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; gap:10px; }
+.meta-row-label{ font-size:13px; color: var(--text-muted); }
+.meta-row-value{ font-family: var(--font-mono); font-size:13px; font-weight:700; color: var(--text); }
+.meta-row-value.over{ color: var(--oxide); }
+.meta-bar-track{ height:8px; border-radius:5px; background: var(--surface-2); border:1px solid var(--line); overflow:hidden; }
+.meta-bar-fill{ height:100%; border-radius:5px; background: var(--chalk); transition: width .2s ease-out; }
+.meta-bar-fill.over{ background: var(--oxide); }
+
+.date-nav{ display:flex; align-items:center; gap:10px; margin: 14px 0 22px; flex-wrap:wrap; }
+.date-nav .btn-icon{ padding:7px 10px; }
+.stat-strip-4{ grid-template-columns: repeat(4, minmax(0,1fr)); }
+.macro-row{ display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.macro-badge{
+  font-size:12px; padding:3px 9px; border-radius:100px; border:1px solid var(--line);
+  color: var(--text-muted); background: var(--surface-3); font-family: var(--font-mono);
+}
+.macro-badge.macro-kcal{ border-color: var(--chalk); color: var(--chalk); font-weight:700; }
+.refeicao-card .hist-card-head{ align-items:flex-start; }
+.field-row-inline{ display:flex; gap:18px; flex-wrap:wrap; margin-bottom:16px; }
+.field-row-inline label{ display:flex; flex-direction:column; gap:6px; font-size:13px; color: var(--text-muted); }
+
+/* ---------- água ---------- */
+.agua-progress-block{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 18px 20px; margin: 14px 0 26px;
+}
+.agua-progress-head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+.agua-total{ font-family: var(--font-mono); font-size:30px; font-weight:700; color: var(--chalk); }
+.agua-total .hint{ font-size:14px; font-weight:400; }
+.agua-presets{ display:flex; flex-wrap:wrap; gap:8px; margin: 10px 0 16px; }
+.agua-preset-btn{ padding: 8px 14px; }
+#agua-custom-ml{ width: 170px; }
+.agua-card .hist-card-head{ align-items:center; }
 
 /* ---------- toast ---------- */
 .toast{

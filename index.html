@@ -25,10 +25,10 @@
     um deploy, mesmo que o cache antigo ainda não tenha expirado.
 
     IMPORTANTE: sempre que publicar uma mudança em style.css, app.js,
-    bodymap.js ou data.js, suba o número de versão AQUI e também na
-    constante APP_VERSION no topo do sw.js (mantendo os dois iguais).
+    bodymap.js, data.js ou taco.js, suba o número de versão AQUI e também
+    na constante APP_VERSION no topo do sw.js (mantendo os dois iguais).
   -->
-  <link rel="stylesheet" href="style.css?v=4"/>
+  <link rel="stylesheet" href="style.css?v=8"/>
 </head>
 <body>
   <div class="app-shell">
@@ -53,6 +53,15 @@
         <button class="nav-btn" data-tab="historico">
           <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg>
           <span>Histórico</span>
+        </button>
+        <div class="nav-divider"></div>
+        <button class="nav-btn" data-tab="dieta">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M6 2v6a2 2 0 0 0 4 0V2"/><path d="M8 2v20"/><path d="M18 2c-2.2 0-3.5 2.5-3.5 6.5S15.8 15 18 15"/><path d="M18 2v20"/></svg>
+          <span>Dieta</span>
+        </button>
+        <button class="nav-btn" data-tab="agua">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 2.5c2.8 3.6 7 9.4 7 13a7 7 0 1 1-14 0c0-3.6 4.2-9.4 7-13z"/></svg>
+          <span>Água</span>
         </button>
         <div class="nav-divider"></div>
         <button class="nav-btn" data-tab="equipamentos">
@@ -109,6 +118,42 @@
     </div>
   </div>
 
+  <div id="modal-refeicao" class="modal-overlay" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <button class="modal-close" id="btn-close-refeicao" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div id="refeicao-mount"></div>
+    </div>
+  </div>
+
+  <div id="modal-alimento-custom" class="modal-overlay" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <button class="modal-close" id="btn-close-alimento-custom" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div id="alimento-custom-mount"></div>
+    </div>
+  </div>
+
+  <div id="modal-meta-dieta" class="modal-overlay" hidden>
+    <div class="modal-panel">
+      <button class="modal-close" id="btn-close-meta-dieta" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div id="meta-dieta-mount"></div>
+    </div>
+  </div>
+
+  <div id="modal-agua-config" class="modal-overlay" hidden>
+    <div class="modal-panel">
+      <button class="modal-close" id="btn-close-agua-config" title="Fechar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div id="agua-config-mount"></div>
+    </div>
+  </div>
+
   <div id="modal-confirm" class="modal-overlay confirm-overlay" hidden>
     <div class="modal-panel modal-panel-sm">
       <p id="confirm-msg" class="confirm-msg"></p>
@@ -121,8 +166,9 @@
 
   <input type="file" id="input-importar-json" accept="application/json" hidden/>
 
-  <script src="data.js?v=4"></script>
-  <script src="bodymap.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="data.js?v=8"></script>
+  <script src="taco.js?v=8"></script>
+  <script src="bodymap.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
