@@ -309,6 +309,10 @@ function clearSessaoTimers() {
 
 function render() {
   document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
+  // Botão "Mais" do rodapé mobile: fica marcado como ativo quando a aba
+  // atual é uma das que moraram pra dentro do menu (histórico/equipamentos/exercícios).
+  const navMoreToggle = document.getElementById('btn-nav-more');
+  if (navMoreToggle) navMoreToggle.classList.toggle('active', ['historico', 'equipamentos', 'exercicios'].includes(currentTab));
   const ativaBtn = document.querySelector('.nav-btn[data-tab="sessao"]');
   if (ativaBtn) ativaBtn.classList.toggle('has-live', !!getSessaoAtiva());
 
@@ -2273,6 +2277,24 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  // Menu "Mais" do rodapé mobile (Histórico / Equipamentos / Exercícios)
+  const btnNavMore = document.getElementById('btn-nav-more');
+  const navMoreMenu = document.getElementById('nav-more-menu');
+  if (btnNavMore && navMoreMenu) {
+    btnNavMore.addEventListener('click', e => {
+      e.stopPropagation();
+      navMoreMenu.hidden = !navMoreMenu.hidden;
+    });
+    navMoreMenu.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => { navMoreMenu.hidden = true; });
+    });
+    document.addEventListener('click', e => {
+      if (!navMoreMenu.hidden && !document.getElementById('nav-more').contains(e.target)) {
+        navMoreMenu.hidden = true;
+      }
+    });
+  }
 
   document.getElementById('fab-add').addEventListener('click', openMontarNovo);
   document.getElementById('btn-close-montar').addEventListener('click', closeMontar);

@@ -84,10 +84,7 @@ svg{ display:block; }
   letter-spacing: -0.03em;
   color: var(--chalk);
 }
-.brand-bar{ display:flex; align-items:center; gap:4px; margin: 9px 0 7px; }
-.brand-bar .bar-line{ flex:1; height:3px; background: var(--text-faint); }
-.brand-bar .plate{ width:10px; height:16px; border-radius:2px; background: var(--text-faint); }
-.brand-tag{ font-size: 11px; color: var(--text-muted); }
+.brand-tag{ font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block; }
 
 .sidebar-nav{ display:flex; flex-direction: column; padding: 10px 12px; gap: 2px; }
 .nav-btn{
@@ -120,6 +117,7 @@ svg{ display:block; }
   100%{ box-shadow: 0 0 0 0 rgba(196,69,47,0); }
 }
 .nav-divider{ height:1px; background: var(--line); margin: 8px 10px; flex-shrink:0; }
+.nav-more{ display:none; } /* só existe no rodapé mobile — ver media query */
 
 .sidebar-footer{ margin-top: auto; padding: 12px; border-top: 1px solid var(--line); }
 .nav-btn-config{
@@ -486,7 +484,7 @@ input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme:
     display:flex; align-items:center; gap:14px; padding: 10px 16px;
     background: var(--surface); border-bottom:1px solid var(--line);
   }
-  .brand-bar, .brand-tag{ display:none; }
+  .brand-tag{ display:none; }
   .brand-word{ font-size:18px; }
   .sidebar-nav{
     position: fixed; bottom:0; left:0; right:0; z-index:20;
@@ -498,6 +496,29 @@ input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme:
   .nav-btn.active{ border-top-color: var(--chalk); }
   .nav-live-dot{ position:absolute; top:6px; right:10px; margin-left:0; }
   .nav-divider{ width:1px; height:auto; align-self:stretch; margin: 4px 2px; }
+
+  /* Rodapé mobile: só ícone, sem rótulo embaixo (exceto no menu "Mais") */
+  .sidebar-nav > .nav-btn span:not(.nav-live-dot){ display:none; }
+
+  /* Histórico / Equipamentos / Exercícios saem do rodapé e vão pro menu "Mais" */
+  .nav-hide-mobile{ display:none; }
+
+  .nav-more{ display:flex; flex:1 1 0; min-width:0; position:relative; }
+  .nav-more-toggle{ width:100%; }
+  .nav-more-toggle span{ display:none; }
+  .nav-more-menu{
+    position:absolute; right:0; bottom: calc(100% + 10px); z-index: 30;
+    display:flex; flex-direction:column; min-width:190px; padding:5px;
+    background: var(--surface-2); border:1px solid var(--line); border-radius: var(--radius-lg);
+    box-shadow: 0 10px 28px rgba(0,0,0,.5);
+  }
+  .nav-more-menu .nav-btn{
+    flex-direction: row; justify-content:flex-start; align-items:center; text-align:left;
+    gap:11px; font-size:13px; padding: 10px 12px; border-top:none;
+  }
+  .nav-more-menu .nav-btn span{ display:inline; }
+  .nav-more-menu .nav-btn .icon{ width:17px; height:17px; }
+  .nav-more-menu .nav-btn.active{ background: var(--surface-3); color: var(--chalk); }
   .sidebar-footer{
     position: fixed; top:8px; right:12px; z-index: 25; border-top:none; padding:0;
   }

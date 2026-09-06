@@ -28,7 +28,7 @@
     bodymap.js, data.js ou taco.js, suba o número de versão AQUI e também
     na constante APP_VERSION no topo do sw.js (mantendo os dois iguais).
   -->
-  <link rel="stylesheet" href="style.css?v=8"/>
+  <link rel="stylesheet" href="style.css?v=9"/>
 </head>
 <body>
   <div class="app-shell">
@@ -36,7 +36,6 @@
       <div class="sidebar-brand">
         <div>
           <span class="brand-word">MAROMBA</span>
-          <div class="brand-bar"><span class="plate"></span><span class="bar-line"></span><span class="plate"></span></div>
           <span class="brand-tag">seus treinos, sua régua</span>
         </div>
       </div>
@@ -50,11 +49,11 @@
           <span>Treino ativo</span>
           <span class="nav-live-dot"></span>
         </button>
-        <button class="nav-btn" data-tab="historico">
+        <button class="nav-btn nav-hide-mobile" data-tab="historico">
           <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg>
           <span>Histórico</span>
         </button>
-        <div class="nav-divider"></div>
+        <div class="nav-divider nav-hide-mobile"></div>
         <button class="nav-btn" data-tab="dieta">
           <svg class="icon" viewBox="0 0 24 24"><path d="M6 2v6a2 2 0 0 0 4 0V2"/><path d="M8 2v20"/><path d="M18 2c-2.2 0-3.5 2.5-3.5 6.5S15.8 15 18 15"/><path d="M18 2v20"/></svg>
           <span>Dieta</span>
@@ -63,15 +62,40 @@
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 2.5c2.8 3.6 7 9.4 7 13a7 7 0 1 1-14 0c0-3.6 4.2-9.4 7-13z"/></svg>
           <span>Água</span>
         </button>
-        <div class="nav-divider"></div>
-        <button class="nav-btn" data-tab="equipamentos">
+        <div class="nav-divider nav-hide-mobile"></div>
+        <button class="nav-btn nav-hide-mobile" data-tab="equipamentos">
           <svg class="icon" viewBox="0 0 24 24"><path d="M2 9v6"/><path d="M22 9v6"/><path d="M4 7v10"/><path d="M20 7v10"/><path d="M7 12h10"/></svg>
           <span>Equipamentos</span>
         </button>
-        <button class="nav-btn" data-tab="exercicios">
+        <button class="nav-btn nav-hide-mobile" data-tab="exercicios">
           <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
           <span>Exercícios</span>
         </button>
+
+        <!-- Grupo "mais" — só aparece no rodapé mobile (ver media query em
+             style.css). Reúne Histórico, Equipamentos e Exercícios num menu
+             pra não poluir o rodapé; no desktop fica sempre oculto porque
+             esses três já aparecem soltos na barra lateral acima. -->
+        <div class="nav-more" id="nav-more">
+          <button class="nav-btn nav-more-toggle" id="btn-nav-more" type="button" title="Mais opções">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+            <span>Mais</span>
+          </button>
+          <div class="nav-more-menu" id="nav-more-menu" hidden>
+            <button class="nav-btn" data-tab="historico">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 3"/></svg>
+              <span>Histórico</span>
+            </button>
+            <button class="nav-btn" data-tab="equipamentos">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M2 9v6"/><path d="M22 9v6"/><path d="M4 7v10"/><path d="M20 7v10"/><path d="M7 12h10"/></svg>
+              <span>Equipamentos</span>
+            </button>
+            <button class="nav-btn" data-tab="exercicios">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/></svg>
+              <span>Exercícios</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="sidebar-footer">
         <button class="nav-btn-config" id="btn-config">
@@ -166,9 +190,9 @@
 
   <input type="file" id="input-importar-json" accept="application/json" hidden/>
 
-  <script src="data.js?v=8"></script>
-  <script src="taco.js?v=8"></script>
-  <script src="bodymap.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="data.js?v=9"></script>
+  <script src="taco.js?v=9"></script>
+  <script src="bodymap.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
