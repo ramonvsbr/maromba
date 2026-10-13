@@ -1,0 +1,10 @@
+{
+  "appId": "br.com.ramon.maromba",
+  "appName": "Maromba",
+  "webDir": "www",
+  "plugins": {
+    "SystemBars": {
+      "style": "LIGHT"
+    }
+  }
+}
