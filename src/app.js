@@ -15,6 +15,9 @@ const STORAGE_KEYS = {
   META_DIETA: 'maromba_meta_dieta',
   AGUA: 'maromba_agua',
   AGUA_CONFIG: 'maromba_agua_config',
+  EQUIP_VISTO: 'maromba_equip_visto',
+  ULTIMO_BACKUP: 'maromba_ultimo_backup',          // ISO da última exportação (só deste aparelho; não entra no backup)
+  BACKUP_ADIADO: 'maromba_backup_aviso_adiado',    // timestamp até quando o aviso da home fica quieto
 };
 
 function loadJSON(key, fallback) {
@@ -77,6 +80,46 @@ function getAguaConfig() {
 }
 function setAguaConfig(obj) { saveJSON(STORAGE_KEYS.AGUA_CONFIG, obj); }
 
+// ---------- lembrete de backup ----------
+// Usa localStorage direto (sem saveJSON) pra uma falha aqui nunca gerar toast.
+const BACKUP_AVISO_DIAS = 14;  // a partir de quantos dias sem backup a home mostra o aviso
+const BACKUP_ADIAR_DIAS = 3;   // "Depois" silencia o aviso por esse tempo
+function getUltimoBackup() {
+  try {
+    const v = localStorage.getItem(STORAGE_KEYS.ULTIMO_BACKUP);
+    const ts = v ? Date.parse(v) : NaN;
+    return isNaN(ts) ? null : ts;
+  } catch (e) { return null; }
+}
+function marcarBackupFeito() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.ULTIMO_BACKUP, new Date().toISOString());
+    localStorage.removeItem(STORAGE_KEYS.BACKUP_ADIADO);
+  } catch (e) { /* sem storage */ }
+}
+function adiarAvisoBackup() {
+  try { localStorage.setItem(STORAGE_KEYS.BACKUP_ADIADO, String(Date.now() + BACKUP_ADIAR_DIAS * 86400000)); } catch (e) { /* sem storage */ }
+}
+function textoHaQuantoTempo(ts) {
+  const dias = Math.floor((Date.now() - ts) / 86400000);
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  return `há ${dias} dias`;
+}
+// null = não mostrar aviso; senão { nunca: true } ou { nunca: false, dias }
+function avisoBackupPendente() {
+  const temDados = getTreinos().length || getHistorico().length || getDieta().length;
+  if (!temDados) return null; // app vazio: nada a perder
+  try {
+    const ate = Number(localStorage.getItem(STORAGE_KEYS.BACKUP_ADIADO));
+    if (ate && Date.now() < ate) return null;
+  } catch (e) { /* sem storage */ }
+  const ts = getUltimoBackup();
+  if (ts === null) return { nunca: true };
+  const dias = Math.floor((Date.now() - ts) / 86400000);
+  return dias >= BACKUP_AVISO_DIAS ? { nunca: false, dias } : null;
+}
+
 // ---------- helpers ----------
 function uid() { return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -91,13 +134,30 @@ function horaAtualHHMM() {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-// tema claro/escuro: aplica no <html> (data-theme) e ajusta a cor da barra
-// do navegador/Android. A escolha fica salva em 'maromba_tema' (só neste
-// aparelho; não entra no backup).
+// Barras nativas do Android (status bar + navigation bar) via plugin
+// SystemBars do Capacitor (embutido no @capacitor/core 7.1+).
+// Atenção: o nome do estilo é pelo FUNDO, não pelo ícone:
+//   'LIGHT' = fundo claro  -> ícones ESCUROS
+//   'DARK'  = fundo escuro -> ícones CLAROS
+function sincronizarBarrasSistema(tema) {
+  try {
+    const cap = window.Capacitor;
+    const SB = cap && cap.Plugins && cap.Plugins.SystemBars;
+    if (SB && typeof SB.setStyle === 'function') {
+      const r = SB.setStyle({ style: tema === 'dark' ? 'DARK' : 'LIGHT' });
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    }
+  } catch (e) { /* fora do app nativo: ignora */ }
+}
+
+// tema claro/escuro: aplica no <html> (data-theme), ajusta a cor da barra
+// do navegador/Android e sincroniza os ícones das barras nativas.
+// A escolha fica salva em 'maromba_tema' (só neste aparelho; não entra no backup).
 function aplicarTema(t) {
   document.documentElement.setAttribute('data-theme', t);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', t === 'dark' ? '#14213D' : '#F6F8FC');
+  sincronizarBarrasSistema(t);
 }
 
 function formatDuration(sec) {
@@ -145,18 +205,43 @@ function unionMuscles(exercicios, { onlyPrimary = false } = {}) {
   });
   return [...set];
 }
-function toast(msg) {
+// toast(msg) simples, ou toast(msg, { acao: { label, fn } }) com um botão
+// (usado pelo "Desfazer"). Com ação o aviso fica mais tempo na tela.
+function toast(msg, opts = {}) {
   let el = document.getElementById('toast');
   if (!el) {
     el = document.createElement('div');
     el.id = 'toast';
     el.className = 'toast';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
-  el.textContent = msg;
+  el.textContent = '';
+  const txt = document.createElement('span');
+  txt.textContent = msg;
+  el.appendChild(txt);
+  const acao = opts.acao;
+  el.classList.toggle('com-acao', !!acao);
+  if (acao) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-acao';
+    b.textContent = acao.label;
+    b.addEventListener('click', () => {
+      clearTimeout(el._t);
+      el.classList.remove('show');
+      acao.fn();
+    });
+    el.appendChild(b);
+  }
   el.classList.add('show');
   clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.remove('show'), 2200);
+  el._t = setTimeout(() => el.classList.remove('show'), acao ? 5000 : 2200);
+}
+// apagou algo simples? avise com "Desfazer" em vez de pedir confirmação antes
+function desfazivel(msg, fnDesfazer) {
+  toast(msg, { acao: { label: 'Desfazer', fn: fnDesfazer } });
 }
 
 // ---------- ícones pequenos (usados dentro de botões) ----------
@@ -231,6 +316,39 @@ function alertaFimDescanso() {
   try { if (navigator.vibrate) navigator.vibrate([180, 90, 180]); } catch (e) { /* silencioso */ }
   tocarBip(880, 0, 260);
   tocarBip(1175, 220, 260);
+}
+
+// ---------- notificação de fim do descanso ----------
+// O setInterval do cronômetro pausa com a tela bloqueada; por isso o fim do
+// descanso também vira uma notificação local agendada (ela dispara mesmo com o
+// app em segundo plano). Id 900: fora da faixa 1000+ dos lembretes de água.
+const DESCANSO_NOTIF_ID = 900;
+let descansoNotifNegada = false; // permissão negada nesta abertura: não insiste a cada série
+async function agendarNotifDescanso(quandoMs, nomeExercicio) {
+  const ln = getLocalNotifications();
+  if (!ln || descansoNotifNegada) return;
+  try {
+    await ln.cancel({ notifications: [{ id: DESCANSO_NOTIF_ID }] });
+    let p = await ln.checkPermissions();
+    if (p.display !== 'granted') p = await ln.requestPermissions();
+    if (p.display !== 'granted') { descansoNotifNegada = true; return; }
+    // o descanso pode ter sido pulado/ajustado enquanto esperávamos a permissão
+    const s = getSessaoAtiva();
+    if (!s || s.pausaAte !== quandoMs || quandoMs <= Date.now()) return;
+    await ln.schedule({ notifications: [{
+      id: DESCANSO_NOTIF_ID,
+      title: '⏱️ Descanso terminou',
+      body: nomeExercicio ? `Hora da próxima série de ${nomeExercicio}.` : 'Hora da próxima série.',
+      schedule: { at: new Date(quandoMs), allowWhileIdle: true },
+    }] });
+  } catch (e) {
+    console.warn('Falha ao agendar notificação de descanso', e);
+  }
+}
+function cancelarNotifDescanso() {
+  const ln = getLocalNotifications();
+  if (!ln) return;
+  try { Promise.resolve(ln.cancel({ notifications: [{ id: DESCANSO_NOTIF_ID }] })).catch(() => {}); } catch (e) { /* silencioso */ }
 }
 
 // ---------- Screen Wake Lock (mantém a tela acesa durante o treino) ----------
@@ -326,16 +444,86 @@ function dataCorteParaPeriodo(periodo) {
   d.setMonth(d.getMonth() - meses);
   return d.toISOString().slice(0, 10);
 }
-const sessaoTimers = { elapsedInt: null, restInt: null };
+const sessaoTimers = { elapsedInt: null, restInt: null, homeInt: null };
 
 function switchTab(id) { currentTab = id; render(); }
+
+// ---------- botão "voltar" do Android ----------
+// Pilha de telas visitadas: o render() empilha a aba anterior toda vez que a
+// aba muda, e o botão voltar desempilha.
+const pilhaAbas = [];
+let abaRenderizada = null;
+let navegandoVoltar = false;
+
+function registrarMudancaDeAba() {
+  if (navegandoVoltar) {
+    navegandoVoltar = false;
+  } else if (abaRenderizada && abaRenderizada !== currentTab) {
+    if (pilhaAbas[pilhaAbas.length - 1] !== abaRenderizada) pilhaAbas.push(abaRenderizada);
+    if (pilhaAbas.length > 20) pilhaAbas.shift();
+  }
+  abaRenderizada = currentTab;
+}
+
+// Ordem de prioridade ao apertar voltar:
+// 1) confirmação aberta  2) menu "Mais"  3) modal aberto (o do topo)
+// 4) tela anterior da pilha  5) início  6) sair do app
+function tratarBotaoVoltar() {
+  const modalConfirm = document.getElementById('modal-confirm');
+  if (modalConfirm && !modalConfirm.hidden) {
+    document.getElementById('btn-confirm-cancel').click();
+    return;
+  }
+
+  const navMoreMenu = document.getElementById('nav-more-menu');
+  if (navMoreMenu && !navMoreMenu.hidden) { navMoreMenu.hidden = true; return; }
+
+  const modais = [
+    [MODAL_ALIMENTO_CUSTOM, closeAlimentoCustom],
+    [MODAL_AGUA_CONFIG, closeAguaConfig],
+    [MODAL_META_DIETA, closeMetaDieta],
+    [MODAL_REFEICAO, closeRefeicao],
+    [MODAL_EXERCICIO_CUSTOM, closeExercicioCustom],
+    [MODAL_MONTAR, closeMontar],
+    [MODAL_CONFIG, closeConfig],
+  ];
+  for (const [modal, fechar] of modais) {
+    if (!modal.hidden) { fechar(); return; }
+  }
+
+  while (pilhaAbas.length) {
+    const anterior = pilhaAbas.pop();
+    if (anterior !== currentTab) {
+      navegandoVoltar = true;
+      currentTab = anterior;
+      render();
+      return;
+    }
+  }
+
+  if (currentTab !== 'meus-treinos') {
+    navegandoVoltar = true;
+    currentTab = 'meus-treinos';
+    render();
+    return;
+  }
+
+  // já está no início e sem nada aberto: fecha o app
+  try {
+    const CapApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (CapApp && CapApp.exitApp) CapApp.exitApp();
+  } catch (e) { /* fora do app nativo: ignora */ }
+}
 function clearSessaoTimers() {
   if (sessaoTimers.elapsedInt) clearInterval(sessaoTimers.elapsedInt);
   if (sessaoTimers.restInt) clearInterval(sessaoTimers.restInt);
-  sessaoTimers.elapsedInt = null; sessaoTimers.restInt = null;
+  if (sessaoTimers.homeInt) clearInterval(sessaoTimers.homeInt);
+  sessaoTimers.elapsedInt = null; sessaoTimers.restInt = null; sessaoTimers.homeInt = null;
 }
 
 function render() {
+  registrarMudancaDeAba();
+  if (currentTab !== 'equipamentos') voltarParaMontar = false; // saiu da tela de equipamentos: o botão "Continuar" não vale mais
   saveCurrentTab();
   document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
   // Botão "Mais" do rodapé mobile: fica marcado como ativo quando a aba
@@ -360,7 +548,25 @@ function render() {
 }
 
 // ================= MODAIS =================
+// Antes de montar o primeiro treino, a pessoa precisa passar pela tela
+// Equipamentos (é ela que define quais exercícios aparecem no seletor).
+// O flag fica salvo só neste aparelho; não entra no backup.
+let voltarParaMontar = false; // true = veio redirecionada pra Equipamentos e deve retornar ao "Adicionar treino"
+function equipamentosVistos() {
+  try { return localStorage.getItem(STORAGE_KEYS.EQUIP_VISTO) === '1'; } catch (e) { return true; }
+}
+function marcarEquipamentosVistos() {
+  try { localStorage.setItem(STORAGE_KEYS.EQUIP_VISTO, '1'); } catch (e) { /* sem storage */ }
+}
+
 function openMontarNovo() {
+  if (getTreinos().length === 0 && !equipamentosVistos()) {
+    voltarParaMontar = true;
+    currentTab = 'equipamentos';
+    render();
+    toast('Primeiro, marque os equipamentos da sua academia.');
+    return;
+  }
   draftTreino = { id: null, nome: '', exercicios: [] };
   musculosAlvoMontagem = new Set();
   buscaMontagem = '';
@@ -446,11 +652,16 @@ function closeAguaConfig() {
 
 // ================= EQUIPAMENTOS =================
 function renderEquipamentos() {
+  marcarEquipamentosVistos();
   const selected = new Set(getEquip());
   APP.innerHTML = `
     <section class="panel">
       <h1>Equipamentos</h1>
       <p class="sub">Marque o que você tem disponível na academia. Isso define quais exercícios aparecem pra montar treino.</p>
+      ${voltarParaMontar ? `
+        <div class="actions-row">
+          <button id="btn-equip-continuar" class="btn btn-accent">Continuar e montar treino →</button>
+        </div>` : ''}
       <div class="actions-row">
         <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
         <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
@@ -478,6 +689,14 @@ function renderEquipamentos() {
     });
   });
 
+  const btnContinuar = document.getElementById('btn-equip-continuar');
+  if (btnContinuar) btnContinuar.addEventListener('click', () => {
+    voltarParaMontar = false;
+    currentTab = 'meus-treinos';
+    render();
+    openMontarNovo();
+  });
+
   document.getElementById('btn-marcar-todos').addEventListener('click', () => {
     setEquip(EQUIPMENT.map(eq => eq.id));
     renderEquipamentos();
@@ -492,6 +711,11 @@ function renderEquipamentos() {
 
 // ================= DADOS / BACKUP (dentro de Ajustes) =================
 function renderDados() {
+  const tsBackup = getUltimoBackup();
+  const backupAtrasado = tsBackup === null || Math.floor((Date.now() - tsBackup) / 86400000) >= BACKUP_AVISO_DIAS;
+  const textoBackup = tsBackup === null
+    ? 'Nenhum backup feito ainda neste aparelho.'
+    : `Último backup: <strong>${textoHaQuantoTempo(tsBackup)}</strong> (${new Date(tsBackup).toLocaleDateString('pt-BR')})`;
   CONFIG_MOUNT.innerHTML = `
     <section>
       <p class="hint">
@@ -500,6 +724,7 @@ function renderDados() {
         ${getDieta().length} refeição(ões) registrada(s), ${getCustomFoods().length} alimento(s) personalizado(s),
         ${getAgua().length} registro(s) de água${getSessaoAtiva() ? ', 1 sessão em andamento' : ''}.
       </p>
+      <p class="hint backup-ultimo ${backupAtrasado ? 'atrasado' : ''}">${textoBackup}</p>
       <div class="backup-actions">
         <button id="btn-exportar-dados" class="btn btn-accent">${ICON_DOWNLOAD}Exportar backup (.json)</button>
         <button id="btn-importar-dados" class="btn btn-ghost">${ICON_UPLOAD}Importar backup (.json)</button>
@@ -511,6 +736,13 @@ function renderDados() {
   document.getElementById('btn-importar-dados').addEventListener('click', () => {
     document.getElementById('input-importar-json').click();
   });
+}
+
+// registra a data do backup e atualiza o que estiver na tela (Ajustes / aviso da home)
+function aoConcluirBackup() {
+  marcarBackupFeito();
+  if (!MODAL_CONFIG.hidden) renderDados();
+  if (currentTab === 'meus-treinos') render();
 }
 
 async function exportarDados() {
@@ -552,6 +784,7 @@ async function exportarDados() {
         url: r.uri,
         dialogTitle: 'Salvar backup',
       });
+      aoConcluirBackup();
     } catch (e) {
       // fechar o menu de compartilhar sem escolher nada não é erro
       if (/cancel/i.test(String((e && e.message) || e))) return;
@@ -572,6 +805,7 @@ async function exportarDados() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    aoConcluirBackup();
     toast('Backup exportado!');
   } catch (e) {
     console.warn('Falha ao exportar', e);
@@ -755,6 +989,60 @@ function historicoResumoExercicio(exId) {
   }
   if (!ultimo) return '<p class="hint">Ainda sem histórico para este exercício.</p>';
   return `<p class="hint">Última carga registrada: <strong>${ultimo.peso}kg</strong> × ${ultimo.reps} em ${formatDateBR(ultimo.data)}</p>`;
+}
+
+// Carga da última sessão em que o exercício foi feito: a série mais pesada dela.
+// Devolve { data, peso, reps } ou null se nunca foi feito.
+function ultimaCargaExercicio(exId) {
+  let recente = null; // sessão mais recente (empate de data: a gravada depois)
+  getHistorico().forEach(s => {
+    const e = (s.exercicios || []).find(x => x.exercicioId === exId);
+    if (!e || !e.sets || !e.sets.length) return;
+    if (!recente || s.data >= recente.data) recente = { data: s.data, sets: e.sets };
+  });
+  if (!recente) return null;
+  const top = recente.sets.reduce((a, b) => (b.peso > a.peso ? b : a), recente.sets[0]);
+  return { data: recente.data, peso: top.peso, reps: top.reps };
+}
+
+// Maior carga já registrada no histórico para o exercício (null = nunca feito).
+function maiorCargaHistorico(exId) {
+  let max = null;
+  getHistorico().forEach(s => (s.exercicios || []).forEach(e => {
+    if (e.exercicioId !== exId) return;
+    (e.sets || []).forEach(set => {
+      const p = Number(set.peso) || 0;
+      if (max === null || p > max) max = p;
+    });
+  }));
+  return max;
+}
+// Recordes pessoais de uma sessão: exercícios cuja maior carga supera o
+// histórico. A primeira vez de um exercício não conta (não há o que bater).
+function recordesDaSessao(sessao) {
+  const out = [];
+  sessao.exercicios.forEach(cfg => {
+    if (!cfg.sets.length) return;
+    const novo = Math.max(...cfg.sets.map(s => Number(s.peso) || 0));
+    if (novo <= 0) return;
+    const antes = maiorCargaHistorico(cfg.exercicioId);
+    if (antes !== null && novo > antes) out.push({ exercicioId: cfg.exercicioId, peso: novo, anterior: antes });
+  });
+  return out;
+}
+// Observação mais recente anotada para o exercício (ex.: "banco no furo 4").
+function ultimaObsExercicio(exId) {
+  let achada = null;
+  getHistorico().forEach(s => {
+    const e = (s.exercicios || []).find(x => x.exercicioId === exId);
+    if (!e || !e.obs) return;
+    if (!achada || s.data >= achada.data) achada = { data: s.data, obs: e.obs };
+  });
+  return achada;
+}
+function nomeExercicio(exId) {
+  const ex = exerciseById(exId);
+  return ex ? ex.nome : exId;
 }
 
 // ================= EXERCÍCIO PERSONALIZADO (modal) =================
@@ -1107,7 +1395,141 @@ function saudacao() {
   return 'Boa noite';
 }
 
+// Cartão do topo da home quando há treino em andamento.
+function continuarTreinoHTML(sessao) {
+  if (!sessao) return '';
+  const total = sessao.exercicios.length;
+  const idx = sessao.exercicioAtualIdx;
+  let detalhe;
+  if (idx >= total) {
+    detalhe = 'Todos os exercícios feitos — falta salvar no histórico';
+  } else {
+    const cfg = sessao.exercicios[idx];
+    const ex = exerciseById(cfg.exercicioId);
+    const serie = cfg.sets.length >= cfg.seriesAlvo ? 'séries concluídas' : `série ${cfg.sets.length + 1}/${cfg.seriesAlvo}`;
+    detalhe = `${escapeHtml(ex ? ex.nome : 'Exercício')} · ${serie} · exercício ${idx + 1} de ${total}`;
+  }
+  return `
+    <div class="continuar-card" role="region" aria-label="Treino em andamento">
+      <div class="continuar-info">
+        <span class="continuar-tag"><span class="live-dot"></span>Treino em andamento</span>
+        <strong class="continuar-nome">${escapeHtml(sessao.treinoNome)}</strong>
+        <span class="continuar-det">${detalhe}</span>
+        <span class="continuar-tempo mono" id="continuar-tempo"></span>
+      </div>
+      <button class="btn btn-accent" data-continuar>Continuar treino</button>
+    </div>`;
+}
+
+function iniciarTempoCartaoContinuar(sessao) {
+  if (sessaoTimers.homeInt) clearInterval(sessaoTimers.homeInt);
+  sessaoTimers.homeInt = null;
+  const el = document.getElementById('continuar-tempo');
+  if (!el) return;
+  const tick = () => {
+    if (!el.isConnected) { clearInterval(sessaoTimers.homeInt); sessaoTimers.homeInt = null; return; }
+    el.textContent = 'Tempo: ' + formatClock((Date.now() - sessao.iniciadoEm) / 1000);
+  };
+  tick();
+  sessaoTimers.homeInt = setInterval(tick, 1000);
+}
+
+// Aviso suave de backup na home (ver avisoBackupPendente).
+function avisoBackupHTML() {
+  const aviso = avisoBackupPendente();
+  if (!aviso) return '';
+  const texto = aviso.nunca
+    ? 'Você ainda não fez nenhum backup. Seus dados ficam só neste aparelho: se o app for desinstalado ou o celular trocado, tudo se perde.'
+    : `Último backup: ${textoHaQuantoTempo(getUltimoBackup())}. Seus dados ficam só neste aparelho; um backup recente evita perder tudo.`;
+  return `
+    <div class="aviso-backup" role="note">
+      <div class="aviso-texto">
+        <strong>Que tal fazer um backup?</strong>
+        <span>${texto}</span>
+      </div>
+      <div class="aviso-acoes">
+        <button class="btn btn-accent" data-backup-agora>Fazer backup</button>
+        <button class="btn btn-ghost" data-backup-depois>Depois</button>
+      </div>
+    </div>`;
+}
+
+// Barra fina de progresso "atual / meta" para o painel Hoje ('' se não há meta).
+function barraHojeHTML(atual, meta) {
+  if (!meta || meta <= 0) return '';
+  const pct = Math.max(0, Math.min(100, Math.round((atual / meta) * 100)));
+  return `<div class="meta-bar-track today-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.round(atual)}">
+    <div class="meta-bar-fill ${atual > meta ? 'over' : ''}" style="width:${pct}%"></div>
+  </div>`;
+}
+
+// Painel "Sua semana": treinos da semana (segunda a domingo) em relação aos
+// treinos montados, bolinhas dos dias e sequência de dias seguidos.
+// A "meta" é o número de treinos montados (limitado a 7): com Treino A/B/C/D
+// montados, a meta da semana é 4.
+const SEQUENCIA_DESCANSO_MAX = 1; // dias de descanso seguidos que ainda não quebram a sequência
+function resumoSemanaHTML(treinos, hist, hoje) {
+  if (!treinos.length && !hist.length) return ''; // app vazio: o estado vazio já convida a começar
+  const dow = new Date(hoje + 'T12:00:00').getDay();           // 0 = domingo
+  const inicio = shiftDateISO(hoje, -((dow + 6) % 7));         // segunda-feira desta semana
+  const dias = Array.from({ length: 7 }, (_, i) => shiftDateISO(inicio, i));
+  const treinou = new Set(hist.map(h => h.data));
+  const feitos = hist.filter(h => h.data >= dias[0] && h.data <= dias[6]).length;
+  const meta = Math.min(7, treinos.length);
+  const pct = meta > 0 ? Math.min(100, Math.round((feitos / meta) * 100)) : 0;
+
+  let titulo;
+  if (meta > 0 && feitos < meta) titulo = `${feitos} de ${meta} treinos esta semana`;
+  else if (meta > 0) titulo = `${feitos} ${feitos === 1 ? 'treino' : 'treinos'} esta semana · meta batida 🎉`;
+  else titulo = `${feitos} ${feitos === 1 ? 'treino' : 'treinos'} esta semana`;
+
+  // sequência: dias de treino encadeados, tolerando até SEQUENCIA_DESCANSO_MAX
+  // dias de descanso entre dois treinos (com 1, treinar segunda e quarta
+  // mantém a sequência). Ela segue viva enquanto o último treino tiver no
+  // máximo SEQUENCIA_DESCANSO_MAX + 1 dias: dá tempo de treinar hoje.
+  const maxSalto = SEQUENCIA_DESCANSO_MAX + 1;
+  const diaAnterior = (de) => {
+    for (let j = 1; j <= maxSalto; j++) {
+      const d = shiftDateISO(de, -j);
+      if (treinou.has(d)) return d;
+    }
+    return null;
+  };
+  let diasDesdeUltimo = null;
+  for (let i = 0; i <= maxSalto; i++) {
+    if (treinou.has(shiftDateISO(hoje, -i))) { diasDesdeUltimo = i; break; }
+  }
+  let seq = 0;
+  if (diasDesdeUltimo !== null) {
+    let cursor = shiftDateISO(hoje, -diasDesdeUltimo);
+    while (cursor && seq < 400) { seq++; cursor = diaAnterior(cursor); }
+  }
+  let textoSeq;
+  if (seq === 0) {
+    textoSeq = 'Sem sequência ativa. Treine hoje para começar uma.';
+  } else {
+    const aviso = diasDesdeUltimo === 0 ? ''
+      : diasDesdeUltimo >= maxSalto ? ' · treine hoje para manter'
+      : ' · hoje pode descansar';
+    textoSeq = `🔥 ${seq} ${seq === 1 ? 'dia' : 'dias'} de treino na sequência${aviso}`;
+  }
+
+  const letras = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+  const nomes = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+  return `
+    <div class="side-card home-semana">
+      <h2>Sua semana</h2>
+      <div class="semana-titulo">${titulo}</div>
+      ${meta > 0 ? `<div class="meta-bar-track today-bar" role="progressbar" aria-label="Treinos da semana" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(feitos, meta)}"><div class="meta-bar-fill" style="width:${pct}%"></div></div>` : ''}
+      <div class="semana-dias">
+        ${dias.map((d, i) => `<span class="semana-dia ${treinou.has(d) ? 'feito' : ''} ${d === hoje ? 'hoje' : ''}" title="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}" aria-label="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}">${letras[i]}</span>`).join('')}
+      </div>
+      <p class="hint semana-seq">${textoSeq}</p>
+    </div>`;
+}
+
 function renderMeusTreinos() {
+  const sessaoAtiva = getSessaoAtiva();
   const treinos = getTreinos();
   const hist = getHistorico();
   const mesAtual = todayISO().slice(0, 7);
@@ -1118,7 +1540,16 @@ function renderMeusTreinos() {
   const aguaHoje = totalAguaDia(hoje);
   const metaAgua = getAguaConfig().metaMl;
   const mlRapido = Number(getAguaConfig().ultimoMl) || 250; // atalho "+" usa o último valor registrado na aba Água
-  const refeicoesHoje = getDieta().filter(r => r.data === hoje).length;
+  const refeicoesDoDia = getDieta().filter(r => r.data === hoje);
+  const refeicoesHoje = refeicoesDoDia.length;
+  const kcalHoje = calcTotaisRefeicoes(refeicoesDoDia).kcal;
+  const metaKcal = Number(getMetaDieta().kcal) || 0;
+  const fmtKcal = n => Math.round(n).toLocaleString('pt-BR');
+  const textoDietaHoje = !refeicoesHoje
+    ? 'Nenhuma refeição registrada'
+    : metaKcal > 0
+      ? `${fmtKcal(kcalHoje)} de ${fmtKcal(metaKcal)} kcal`
+      : `${fmtKcal(kcalHoje)} kcal · ${refeicoesHoje} refeição(ões)`;
   const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
 
   APP.innerHTML = `
@@ -1129,6 +1560,9 @@ function renderMeusTreinos() {
           <h1>${saudacao()}. Bora treinar?</h1>
         </div>
       </div>
+
+      ${continuarTreinoHTML(sessaoAtiva)}
+      ${avisoBackupHTML()}
 
       <div class="stat-strip">
         <div class="stat-card stat-card-ico">
@@ -1145,17 +1579,19 @@ function renderMeusTreinos() {
         </div>
       </div>
 
+      ${resumoSemanaHTML(treinos, hist, hoje)}
+
       <div class="side-card home-today">
         <h2>Hoje</h2>
         <div class="today-rows">
           <div class="today-row">
             <span class="today-ico">${ICO_DROP}</span>
-            <div class="today-txt">Água<small>${aguaHoje > 0 ? `${aguaHoje} ml${metaAgua > 0 ? ` de ${metaAgua} ml` : ''}` : 'Nenhuma água registrada'}</small></div>
+            <div class="today-txt">Água<small>${aguaHoje > 0 ? `${aguaHoje} ml${metaAgua > 0 ? ` de ${metaAgua} ml` : ''}` : 'Nenhuma água registrada'}</small>${barraHojeHTML(aguaHoje, metaAgua)}</div>
             <button class="today-btn" data-agua-quick aria-label="Registrar ${mlRapido} ml de água" title="+${mlRapido} ml">${ICO_PLUS}</button>
           </div>
           <div class="today-row">
             <span class="today-ico">${ICO_FOOD}</span>
-            <div class="today-txt">Dieta<small>${refeicoesHoje > 0 ? `${refeicoesHoje} refeição(ões) registrada(s)` : 'Nenhuma refeição registrada'}</small></div>
+            <div class="today-txt">Dieta<small>${textoDietaHoje}</small>${barraHojeHTML(kcalHoje, metaKcal)}</div>
             <button class="today-btn" data-refeicao-quick aria-label="Registrar refeição" title="Registrar refeição">${ICO_PLUS}</button>
           </div>
         </div>
@@ -1181,11 +1617,22 @@ function renderMeusTreinos() {
   const btnAguaQuick = APP.querySelector('[data-agua-quick]');
   if (btnAguaQuick) btnAguaQuick.addEventListener('click', () => {
     const arr = getAgua();
-    arr.push({ id: uid(), data: todayISO(), horario: horaAtualHHMM(), ml: mlRapido });
+    const novo = { id: uid(), data: todayISO(), horario: horaAtualHHMM(), ml: mlRapido };
+    arr.push(novo);
     setAgua(arr);
     render();
-    toast(`+${mlRapido} ml registrado!`);
+    desfazivel(`+${mlRapido} ml registrado!`, () => {
+      setAgua(getAgua().filter(r => r.id !== novo.id));
+      if (currentTab === 'meus-treinos') render();
+    });
   });
+  if (sessaoAtiva) iniciarTempoCartaoContinuar(sessaoAtiva);
+  const btnContinuar = APP.querySelector('[data-continuar]');
+  if (btnContinuar) btnContinuar.addEventListener('click', () => switchTab('sessao'));
+  const btnBackupAgora = APP.querySelector('[data-backup-agora]');
+  if (btnBackupAgora) btnBackupAgora.addEventListener('click', () => exportarDados());
+  const btnBackupDepois = APP.querySelector('[data-backup-depois]');
+  if (btnBackupDepois) btnBackupDepois.addEventListener('click', () => { adiarAvisoBackup(); render(); });
   const btnRefeicaoQuick = APP.querySelector('[data-refeicao-quick]');
   if (btnRefeicaoQuick) btnRefeicaoQuick.addEventListener('click', () => { dietaData = todayISO(); openRefeicaoNova(); });
   APP.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
@@ -1271,6 +1718,25 @@ function renderSessao() {
   const serieAtual = cfg.sets.length + 1;
   const emDescanso = !!(sessao.pausaAte && sessao.pausaAte > Date.now());
 
+  // Valor que já vem preenchido na série atual: a série anterior desta sessão;
+  // na primeira série, a carga da última vez que o exercício foi feito; sem
+  // histórico, o alvo do treino.
+  const ultima = ultimaCargaExercicio(cfg.exercicioId);
+  const serieAnterior = cfg.sets.length ? cfg.sets[cfg.sets.length - 1] : null;
+  const base = serieAnterior || ultima || { peso: cfg.pesoAlvo, reps: cfg.repeticoesAlvo };
+  const pesoInicial = Number(base.peso) || 0;
+  const repsInicial = Number(base.reps) || 0;
+  const refUltima = ultima
+    ? `Última vez: <strong>${ultima.peso} kg × ${ultima.reps}</strong> · ${formatDateBR(ultima.data)}`
+    : 'Primeira vez neste exercício';
+  const obsAnterior = ultimaObsExercicio(cfg.exercicioId);
+
+  // barra de progresso: um segmento por exercício (o atual enche conforme as séries)
+  const segsHTML = sessao.exercicios.map((c, i) => {
+    const frac = i < idx ? (c.sets.length ? 1 : 0) : i === idx ? Math.min(c.sets.length / (c.seriesAlvo || 1), 1) : 0;
+    return `<span class="prog-seg ${i === idx ? 'atual' : ''}"><i style="width:${Math.round(frac * 100)}%"></i></span>`;
+  }).join('');
+
   APP.innerHTML = `
     <section class="panel">
       <div class="sessao-top">
@@ -1280,6 +1746,7 @@ function renderSessao() {
           <span id="tempo-decorrido" class="mono"></span>
         </div>
       </div>
+      <div class="progresso-treino" role="progressbar" aria-label="Progresso do treino" aria-valuemin="1" aria-valuemax="${sessao.exercicios.length}" aria-valuenow="${idx + 1}">${segsHTML}</div>
 
       <div class="sessao-grid">
         <div class="bodymap-mount" id="sessao-bodymap"></div>
@@ -1291,13 +1758,33 @@ function renderSessao() {
           </div>
 
           <div class="sets-log">
-            ${cfg.sets.map((s, i) => `<div class="set-line done">Série ${i + 1}: ${s.peso}kg × ${s.reps}</div>`).join('')}
+            ${cfg.sets.map((s, i) => `
+              <div class="set-line done">
+                <span>Série ${i + 1}: ${s.peso}kg × ${s.reps}</span>
+                <button class="btn-remove set-del" data-del-set="${i}" title="Excluir série" aria-label="Excluir série ${i + 1}">✕</button>
+              </div>`).join('')}
             ${(!emDescanso && serieAtual <= cfg.seriesAlvo) ? `
               <div class="set-line atual">
-                <span>Série ${serieAtual}/${cfg.seriesAlvo}</span>
-                <label>kg<input id="input-peso" type="number" step="0.5" min="0" value="${cfg.pesoAlvo}"/></label>
-                <label>reps<input id="input-reps" type="number" step="1" min="0" value="${cfg.repeticoesAlvo}"/></label>
+                <span class="set-titulo">Série ${serieAtual}/${cfg.seriesAlvo}</span>
+                <span class="hint set-ref">${refUltima} · Meta: ${cfg.seriesAlvo}×${cfg.repeticoesAlvo}${cfg.pesoAlvo ? ` · ${cfg.pesoAlvo} kg` : ''}</span>
+                <div class="step-field">
+                  <span class="step-label">Carga (kg)</span>
+                  <div class="stepper">
+                    <button type="button" class="step-btn" data-step="peso" data-delta="-1" aria-label="Diminuir 1 kg">−</button>
+                    <input id="input-peso" type="number" inputmode="decimal" step="0.5" min="0" value="${pesoInicial}" aria-label="Carga em kg"/>
+                    <button type="button" class="step-btn" data-step="peso" data-delta="1" aria-label="Aumentar 1 kg">+</button>
+                  </div>
+                </div>
+                <div class="step-field">
+                  <span class="step-label">Repetições</span>
+                  <div class="stepper">
+                    <button type="button" class="step-btn" data-step="reps" data-delta="-1" aria-label="Diminuir 1 repetição">−</button>
+                    <input id="input-reps" type="number" inputmode="numeric" step="1" min="0" value="${repsInicial}" aria-label="Repetições"/>
+                    <button type="button" class="step-btn" data-step="reps" data-delta="1" aria-label="Aumentar 1 repetição">+</button>
+                  </div>
+                </div>
                 <button id="btn-registrar-serie" class="btn btn-accent">Registrar série</button>
+                ${serieAnterior ? `<button id="btn-repetir-serie" class="btn btn-ghost">Repetir última série · ${serieAnterior.peso} kg × ${serieAnterior.reps}</button>` : ''}
               </div>` : ''}
           </div>
 
@@ -1305,6 +1792,10 @@ function renderSessao() {
             <div class="descanso-box">
               <span>Descansando…</span>
               <span id="pausa-countdown" class="mono big"></span>
+              <div class="descanso-ajuste">
+                <button id="btn-descanso-menos" class="btn btn-ghost" aria-label="Diminuir descanso em 15 segundos">−15 s</button>
+                <button id="btn-descanso-mais" class="btn btn-ghost" aria-label="Aumentar descanso em 15 segundos">+15 s</button>
+              </div>
               <button id="btn-pular-descanso" class="btn btn-ghost">Pular descanso</button>
             </div>` : ''}
 
@@ -1312,6 +1803,12 @@ function renderSessao() {
             <button id="btn-prox-exercicio" class="btn btn-accent">
               ${idx + 1 < sessao.exercicios.length ? 'Próximo exercício →' : 'Finalizar treino'}
             </button>` : ''}
+
+          <details class="obs-box" ${cfg.obs ? 'open' : ''}>
+            <summary>📝 Observação${cfg.obs ? ' ✓' : ''}</summary>
+            ${obsAnterior ? `<p class="hint obs-anterior">Da última vez (${formatDateBR(obsAnterior.data)}): ${escapeHtml(obsAnterior.obs)}</p>` : ''}
+            <textarea id="input-obs" rows="2" maxlength="300" placeholder="Ex.: banco no furo 4, ombro incomodando">${escapeHtml(cfg.obs || '')}</textarea>
+          </details>
 
         </div>
       </div>
@@ -1336,6 +1833,9 @@ function renderSessao() {
       const rest = Math.max(0, Math.round((sessao.pausaAte - Date.now()) / 1000));
       const el = document.getElementById('pausa-countdown');
       if (el) el.textContent = rest + 's';
+      // app aberto e visível: o bip/vibração daqui já avisa, então tira a
+      // notificação do ar um instante antes pra não avisar duas vezes
+      if (rest <= 1 && !document.hidden) cancelarNotifDescanso();
       if (rest <= 0) {
         sessao.pausaAte = null;
         setSessaoAtiva(sessao);
@@ -1347,23 +1847,88 @@ function renderSessao() {
     sessaoTimers.restInt = setInterval(atualizaPausa, 1000);
   }
 
+  const registrarSerie = (peso, reps) => {
+    try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) { /* silencioso */ }
+    cfg.sets.push({ peso, reps });
+    const vaiDescansar = cfg.sets.length < cfg.seriesAlvo && cfg.pausa > 0;
+    if (vaiDescansar) sessao.pausaAte = Date.now() + cfg.pausa * 1000;
+    setSessaoAtiva(sessao);
+    if (vaiDescansar) agendarNotifDescanso(sessao.pausaAte, ex.nome);
+    render();
+  };
+
   const btnReg = document.getElementById('btn-registrar-serie');
   if (btnReg) btnReg.addEventListener('click', () => {
-    const peso = Number(document.getElementById('input-peso').value) || 0;
+    const peso = Number(String(document.getElementById('input-peso').value).replace(',', '.')) || 0;
     const reps = Number(document.getElementById('input-reps').value) || 0;
-    cfg.sets.push({ peso, reps });
-    if (cfg.sets.length < cfg.seriesAlvo && cfg.pausa > 0) {
-      sessao.pausaAte = Date.now() + cfg.pausa * 1000;
-    }
+    registrarSerie(peso, reps);
+  });
+
+  // "Repetir última série": registra de uma vez a série anterior, sem mexer nos campos
+  const btnRepetir = document.getElementById('btn-repetir-serie');
+  if (btnRepetir && serieAnterior) btnRepetir.addEventListener('click', () => registrarSerie(serieAnterior.peso, serieAnterior.reps));
+
+  // botões − e + ao lado de kg (passo 2,5) e reps (passo 1)
+  APP.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+    const input = document.getElementById(b.dataset.step === 'peso' ? 'input-peso' : 'input-reps');
+    if (!input) return;
+    const atual = Number(String(input.value).replace(',', '.')) || 0;
+    input.value = Math.max(0, Math.round((atual + Number(b.dataset.delta)) * 100) / 100);
+  }));
+  // tocar no campo seleciona o valor: dá pra digitar por cima sem apagar
+  ['input-peso', 'input-reps'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('focus', () => input.select());
+  });
+
+  // excluir uma série já registrada (com "Desfazer")
+  APP.querySelectorAll('[data-del-set]').forEach(b => b.addEventListener('click', () => {
+    const i = Number(b.dataset.delSet);
+    const removida = cfg.sets.splice(i, 1)[0];
+    if (!removida) return;
     setSessaoAtiva(sessao);
     render();
-  });
+    desfazivel(`Série ${i + 1} excluída`, () => {
+      const s = getSessaoAtiva();
+      if (!s || s.id !== sessao.id || !s.exercicios[idx]) return;
+      s.exercicios[idx].sets.splice(i, 0, removida);
+      setSessaoAtiva(s);
+      if (currentTab === 'sessao') render();
+    });
+  }));
 
   const btnPularDescanso = document.getElementById('btn-pular-descanso');
   if (btnPularDescanso) btnPularDescanso.addEventListener('click', () => {
     sessao.pausaAte = null;
     setSessaoAtiva(sessao);
+    cancelarNotifDescanso();
     render();
+  });
+
+  // −15 s / +15 s no descanso (se zerar, o descanso termina)
+  const ajustarDescanso = delta => {
+    const novo = sessao.pausaAte + delta * 1000;
+    if (novo <= Date.now() + 1000) {
+      sessao.pausaAte = null;
+      setSessaoAtiva(sessao);
+      cancelarNotifDescanso();
+    } else {
+      sessao.pausaAte = novo;
+      setSessaoAtiva(sessao);
+      agendarNotifDescanso(novo, ex.nome);
+    }
+    render();
+  };
+  const btnDescansoMenos = document.getElementById('btn-descanso-menos');
+  if (btnDescansoMenos) btnDescansoMenos.addEventListener('click', () => ajustarDescanso(-15));
+  const btnDescansoMais = document.getElementById('btn-descanso-mais');
+  if (btnDescansoMais) btnDescansoMais.addEventListener('click', () => ajustarDescanso(15));
+
+  // observação do exercício: salva a cada tecla, sem redesenhar (senão o teclado fecharia)
+  const inputObs = document.getElementById('input-obs');
+  if (inputObs) inputObs.addEventListener('input', () => {
+    cfg.obs = inputObs.value;
+    setSessaoAtiva(sessao);
   });
 
   const btnProx = document.getElementById('btn-prox-exercicio');
@@ -1378,6 +1943,7 @@ function renderSessao() {
       sessao.exercicioAtualIdx += 1;
       sessao.pausaAte = null;
       setSessaoAtiva(sessao);
+      cancelarNotifDescanso();
       render();
     });
   });
@@ -1387,6 +1953,7 @@ function renderSessao() {
       clearSessaoTimers();
       releaseWakeLock();
       setSessaoAtiva(null);
+      cancelarNotifDescanso();
       render();
     });
   });
@@ -1395,6 +1962,7 @@ function renderSessao() {
 function renderSessaoResumoFinal(sessao) {
   const musculos = unionMuscles(sessao.exercicios);
   const duracaoReal = Math.floor((Date.now() - sessao.iniciadoEm) / 1000);
+  const recordes = recordesDaSessao(sessao); // calculado antes de gravar, contra o histórico atual
   APP.innerHTML = `
     <section class="panel">
       <h1>Treino concluído</h1>
@@ -1409,12 +1977,18 @@ function renderSessaoResumoFinal(sessao) {
           <div class="summary-value">${formatClock(duracaoReal)}</div>
         </div>
       </div>
+      ${recordes.length ? `
+        <div class="recorde-box" role="status">
+          <strong>🏆 ${recordes.length === 1 ? 'Novo recorde!' : `${recordes.length} novos recordes!`}</strong>
+          ${recordes.map(r => `<span>${escapeHtml(nomeExercicio(r.exercicioId))}: <b>${r.peso} kg</b> (antes ${r.anterior} kg)</span>`).join('')}
+        </div>` : ''}
       <div class="draft-list">
         ${sessao.exercicios.map(cfg => {
-          const ex = exerciseById(cfg.exercicioId);
+          const rec = recordes.find(r => r.exercicioId === cfg.exercicioId);
           return `<div class="draft-row">
-            <div class="draft-row-head"><span class="ex-nome">${ex.nome}</span></div>
+            <div class="draft-row-head"><span class="ex-nome">${escapeHtml(nomeExercicio(cfg.exercicioId))}</span>${rec ? `<span class="badge-pr">🏆 ${rec.peso} kg</span>` : ''}</div>
             ${cfg.sets.length ? cfg.sets.map((s, i) => `<div class="set-line done">Série ${i + 1}: ${s.peso}kg × ${s.reps}</div>`).join('') : '<p class="hint">Nenhuma série registrada.</p>'}
+            ${cfg.obs && cfg.obs.trim() ? `<p class="hint obs-line">📝 ${escapeHtml(cfg.obs.trim())}</p>` : ''}
           </div>`;
         }).join('')}
       </div>
@@ -1433,19 +2007,28 @@ function renderSessaoResumoFinal(sessao) {
       duracaoSegundos: duracaoReal,
       estimadoSegundos: sessao.estimadoSegundos,
       musculos,
-      exercicios: sessao.exercicios.map(cfg => ({ exercicioId: cfg.exercicioId, sets: cfg.sets })),
+      exercicios: sessao.exercicios.map(cfg => {
+        const item = { exercicioId: cfg.exercicioId, sets: cfg.sets };
+        if (cfg.obs && cfg.obs.trim()) item.obs = cfg.obs.trim();
+        return item;
+      }),
     };
+    if (recordes.length) registro.recordes = recordes;
     const hist = getHistorico();
     hist.push(registro);
     setHistorico(hist);
     setSessaoAtiva(null);
+    cancelarNotifDescanso();
     currentTab = 'historico';
     render();
-    toast('Treino salvo no histórico!');
+    toast(recordes.length
+      ? `Treino salvo! 🏆 ${recordes.length === 1 ? 'Novo recorde' : `${recordes.length} novos recordes`}`
+      : 'Treino salvo no histórico!');
   });
   document.getElementById('btn-descartar-sessao').addEventListener('click', () => {
     showConfirm('Descartar esta sessão sem salvar no histórico?', () => {
       setSessaoAtiva(null);
+      cancelarNotifDescanso();
       currentTab = 'meus-treinos';
       render();
     });
@@ -1534,6 +2117,7 @@ function histCardHTML(s) {
       <div class="hist-card-head">
         <div><strong>${escapeHtml(s.treinoNome)}</strong><span class="hint"> — ${formatDateBR(s.data)}</span></div>
         <div class="hist-card-meta">
+          ${s.recordes && s.recordes.length ? `<span class="badge-pr" title="Recordes de carga nesta sessão">🏆 ${s.recordes.length}</span>` : ''}
           <span class="mono">${formatClock(s.duracaoSegundos)}</span>
           <button class="btn-remove" data-del-hist="${s.id}" title="Excluir">✕</button>
         </div>
@@ -1543,9 +2127,11 @@ function histCardHTML(s) {
         <div class="draft-list">
           ${s.exercicios.map(cfg => {
             const ex = exerciseById(cfg.exercicioId);
+            const rec = (s.recordes || []).find(r => r.exercicioId === cfg.exercicioId);
             return `<div class="draft-row">
-              <div class="draft-row-head"><span class="ex-nome">${ex ? ex.nome : cfg.exercicioId}</span></div>
+              <div class="draft-row-head"><span class="ex-nome">${ex ? ex.nome : cfg.exercicioId}</span>${rec ? `<span class="badge-pr">🏆 ${rec.peso} kg</span>` : ''}</div>
               ${cfg.sets.length ? cfg.sets.map((set, i) => `<div class="set-line done">Série ${i + 1}: ${set.peso}kg × ${set.reps}</div>`).join('') : '<p class="hint">Sem séries registradas.</p>'}
+              ${cfg.obs ? `<p class="hint obs-line">📝 ${escapeHtml(cfg.obs)}</p>` : ''}
             </div>`;
           }).join('')}
         </div>` : ''}
@@ -1907,11 +2493,20 @@ function renderDieta() {
   APP.querySelectorAll('[data-del-refeicao]').forEach(btn => {
     btn.addEventListener('click', ev => {
       ev.stopPropagation();
-      showConfirm('Excluir esta refeição?', () => {
-        setDieta(getDieta().filter(x => x.id !== btn.dataset.delRefeicao));
-        refeicaoAberta = null;
-        renderDieta();
-        toast('Refeição excluída.');
+      const id = btn.dataset.delRefeicao;
+      const lista = getDieta();
+      const pos = lista.findIndex(x => x.id === id);
+      if (pos < 0) return;
+      const removida = lista[pos];
+      setDieta(lista.filter(x => x.id !== id));
+      refeicaoAberta = null;
+      renderDieta();
+      desfazivel('Refeição excluída', () => {
+        const atual = getDieta();
+        if (atual.some(x => x.id === removida.id)) return;
+        atual.splice(Math.min(pos, atual.length), 0, removida);
+        setDieta(atual);
+        if (currentTab === 'dieta') renderDieta();
       });
     });
   });
@@ -2303,7 +2898,8 @@ function adicionarAgua(ml) {
   ml = Math.round(Number(ml));
   if (!ml || ml <= 0) { toast('Informe uma quantidade de água válida.'); return; }
   const arr = getAgua();
-  arr.push({ id: uid(), data: aguaData, horario: horaAtualHHMM(), ml });
+  const novo = { id: uid(), data: aguaData, horario: horaAtualHHMM(), ml };
+  arr.push(novo);
   setAgua(arr);
   // lembra o último valor registrado: já vem marcado na próxima vez e é
   // o valor usado pelo atalho "+" da tela inicial
@@ -2315,7 +2911,10 @@ function adicionarAgua(ml) {
     aguaCustomMl = String(ml);
   }
   renderAgua();
-  toast(`+${ml} ml registrado!`);
+  desfazivel(`+${ml} ml registrado!`, () => {
+    setAgua(getAgua().filter(r => r.id !== novo.id));
+    if (currentTab === 'agua') renderAgua();
+  });
 }
 
 // define o chip inicial a partir do último valor registrado (padrão 250 ml);
@@ -2402,7 +3001,7 @@ function renderAgua() {
                 <button class="btn-remove" data-del-agua="${r.id}" title="Excluir">✕</button>
               </div>
             </div>`).join('')}
-        </div>` : '<p class="empty">Nenhum registro nesse dia ainda. Use os botões acima pra começar.</p>'}
+        </div>` : '<p class="empty">Nenhum registro nesse dia ainda.</p>'}
     </section>`;
 
   document.getElementById('btn-agua-config').addEventListener('click', openAguaConfig);
@@ -2440,10 +3039,19 @@ function renderAgua() {
 
   APP.querySelectorAll('[data-del-agua]').forEach(btn => {
     btn.addEventListener('click', () => {
-      showConfirm('Excluir este registro de água?', () => {
-        setAgua(getAgua().filter(r => r.id !== btn.dataset.delAgua));
-        renderAgua();
-        toast('Registro excluído.');
+      const id = btn.dataset.delAgua;
+      const lista = getAgua();
+      const pos = lista.findIndex(r => r.id === id);
+      if (pos < 0) return;
+      const removido = lista[pos];
+      setAgua(lista.filter(r => r.id !== id));
+      renderAgua();
+      desfazivel('Registro excluído', () => {
+        const atual = getAgua();
+        if (atual.some(r => r.id === removido.id)) return;
+        atual.splice(Math.min(pos, atual.length), 0, removido);
+        setAgua(atual);
+        if (currentTab === 'agua') renderAgua();
       });
     });
   });
@@ -2604,7 +3212,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // tema claro/escuro: o <head> já aplicou o tema salvo (ou o do aparelho);
-  // aqui sincronizamos a cor da barra do navegador e ligamos o botão
+  // aqui sincronizamos a cor da barra do navegador, os ícones das barras
+  // nativas do Android (aplicarTema -> SystemBars) e ligamos o botão
   aplicarTema(document.documentElement.dataset.theme || 'light');
   document.getElementById('btn-tema').addEventListener('click', () => {
     const novo = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -2647,6 +3256,14 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = ''; // permite importar o mesmo arquivo de novo depois
     if (file) importarDados(file);
   });
+
+  // botão voltar do Android (plugin @capacitor/app)
+  try {
+    const CapApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (CapApp && typeof CapApp.addListener === 'function') {
+      CapApp.addListener('backButton', tratarBotaoVoltar);
+    }
+  } catch (e) { /* fora do app nativo: ignora */ }
 
   syncCustomExercises();
   syncCustomFoods();

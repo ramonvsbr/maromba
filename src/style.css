@@ -436,16 +436,18 @@ input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme:
   padding: 18px 20px; margin: 14px 0 26px;
 }
 .agua-progress-head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-.agua-total{ font-family: var(--font-mono); font-size:30px; font-weight:700; color: var(--chalk-text); }
+.agua-total{ font-family: var(--font-mono); font-size:30px; font-weight:700; color: var(--text); }
 .agua-total .hint{ font-size:14px; font-weight:400; }
 #agua-custom-ml{ width: 170px; }
 .agua-card .hist-card-head{ align-items:center; }
 
-/* ---------- toast ---------- */
+/* ---------- toast (aparece no topo, abaixo do header) ---------- */
 .toast{
-  position: fixed; left:50%; bottom: 24px; transform: translate(-50%, 20px);
+  position: fixed; left:50%; top: 20px; bottom: auto;
+  transform: translate(-50%, -16px);
   background: var(--surface-3); border:1px solid var(--chalk); color: var(--text);
   padding: 10px 18px; border-radius: var(--radius); font-size: 14px;
+  max-width: calc(100vw - 32px); text-align:center;
   opacity:0; pointer-events:none; transition: opacity .2s, transform .2s; z-index: 200;
 }
 .toast.show{ opacity:1; transform: translate(-50%, 0); }
@@ -532,7 +534,8 @@ input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme:
   }
   .panel, .panel-home{ max-width: 100%; }
   h1{ font-size: 22px; }
-  .toast{ bottom: calc(90px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); text-align:center; }
+  /* toast logo abaixo da barra superior fixa (56px + área da barra de status) */
+  .toast{ top: calc(56px + env(safe-area-inset-top, 0px) + 12px); bottom: auto; }
 
   /* inputs com 16px evitam o zoom automático do iOS ao focar */
   select, input[type=text], input[type=number], input[type=date], input[type=time]{
@@ -958,4 +961,164 @@ input[type=date], input[type=time]{ font-family: var(--font-mono); color-scheme:
 }
 .chip-filter.campo-erro{
   outline: 2px solid var(--oxide); outline-offset: 5px; border-radius: 12px;
+}
+
+/* =========================================================
+   MELHORIAS DE USO NA ACADEMIA
+   - série atual com botões − / + grandes
+   - cartão "Continuar treino" e aviso de backup na home
+   - toast com botão "Desfazer"
+   Fica no FINAL do arquivo para ganhar das regras mais antigas.
+   ========================================================= */
+
+/* ---------- série atual: carga anterior + stepper ---------- */
+.set-line.atual{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:end; padding:14px; }
+.set-line.atual > .set-titulo{ grid-column:1 / -1; font-weight:800; font-size:15px; }
+.set-line.atual > .set-ref{ grid-column:1 / -1; margin:-6px 0 0; line-height:1.4; }
+.set-line.atual > .set-ref strong{ color: var(--text); }
+.set-line.atual > .btn{ grid-column:1 / -1; margin-top:0; }
+
+.step-field{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+.step-label{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color: var(--text-muted); }
+.stepper{ display:flex; align-items:stretch; gap:8px; }
+.set-line.atual .stepper input[type=number]{
+  flex:1 1 auto; min-width:0; width:auto; min-height:56px;
+  text-align:center; font-size:22px; font-weight:800;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.stepper input[type=number]::-webkit-outer-spin-button,
+.stepper input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+.step-btn{
+  flex:none; width:56px; min-height:56px; border-radius: var(--radius);
+  border:1px solid var(--line-strong, var(--line)); background: var(--surface); color: var(--text);
+  font-family: inherit; font-size:28px; font-weight:700; line-height:1;
+  display:grid; place-items:center; cursor:pointer;
+  touch-action: manipulation; user-select:none; -webkit-user-select:none;
+}
+.step-btn:active{ background: var(--chalk); border-color: var(--chalk); color: var(--chalk-ink); }
+
+/* séries já registradas: texto + botão de excluir */
+.set-line.done{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.set-line.done .set-del{ flex:none; }
+
+@media (max-width: 900px){
+  .set-line.atual{ grid-template-columns: 1fr; }
+  .set-line.done .set-del{ width:40px; height:40px; }
+}
+
+/* ---------- cartão "Continuar treino" (home) ---------- */
+.continuar-card{
+  position:relative; display:flex; align-items:center; justify-content:space-between;
+  gap:14px 20px; flex-wrap:wrap; overflow:hidden;
+  background: var(--surface); border:1px solid var(--chalk); border-radius: var(--radius-lg);
+  padding:18px 20px 18px 24px; margin-bottom:24px;
+}
+.continuar-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:5px; background: var(--chalk); }
+.continuar-info{ display:flex; flex-direction:column; gap:3px; flex:1 1 240px; min-width:0; }
+.continuar-tag{ display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color: var(--text-muted); }
+.live-dot{
+  width:8px; height:8px; border-radius:50%; background: var(--oxide);
+  box-shadow: 0 0 0 0 rgba(196,69,47,.6); animation: livepulse 1.8s infinite;
+}
+.continuar-nome{ font-size:20px; font-weight:800; color: var(--text); overflow-wrap:anywhere; }
+.continuar-det{ font-size:14px; color: var(--text-muted); }
+.continuar-tempo{ font-size:14px; font-weight:700; color: var(--chalk-text); }
+.continuar-card .btn{ flex:none; margin-top:0; }
+
+/* ---------- aviso de backup (home) e linha em Ajustes ---------- */
+.aviso-backup{
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px 20px;
+  background: var(--surface-2); border:1px solid var(--line); border-radius: var(--radius-lg);
+  padding:14px 18px; margin-bottom:24px;
+}
+.aviso-texto{ display:flex; flex-direction:column; gap:2px; flex:1 1 260px; min-width:0; font-size:14px; line-height:1.45; color: var(--text-muted); }
+.aviso-texto strong{ color: var(--text); font-size:15px; }
+.aviso-acoes{ display:flex; gap:8px; flex-wrap:wrap; }
+.aviso-acoes .btn{ margin-top:0; }
+.aviso-acoes .btn.btn-ghost{ height:48px; }
+.backup-ultimo{ margin: 12px 0 0; }
+.backup-ultimo strong{ color: var(--text); }
+.backup-ultimo.atrasado strong{ color: var(--oxide); }
+
+@media (max-width: 900px){
+  .continuar-card .btn{ width:100%; }
+  .aviso-acoes{ width:100%; }
+  .aviso-acoes .btn{ flex:1 1 0; }
+}
+
+/* ---------- toast com ação ("Excluído · Desfazer") ---------- */
+.toast.com-acao{ display:flex; align-items:center; justify-content:center; gap:14px; }
+.toast.com-acao.show{ pointer-events:auto; }
+.toast-acao{
+  flex:none; background:none; border:none; padding:6px 4px; min-height:36px; cursor:pointer;
+  font: inherit; font-weight:800; color: var(--chalk-text); text-decoration: underline; text-underline-offset:3px;
+}
+
+/* =========================================================
+   TREINO ATIVO — progresso, descanso ±15 s, observação, recorde
+   ========================================================= */
+
+/* barra de progresso do treino: um segmento por exercício */
+.progresso-treino{ display:flex; gap:4px; margin-top:12px; }
+.prog-seg{ flex:1 1 0; min-width:0; height:8px; border-radius:4px; background: var(--surface-3); overflow:hidden; }
+.prog-seg i{ display:block; height:100%; background: var(--chalk); border-radius:4px; transition: width .25s ease-out; }
+.prog-seg.atual{ outline:1px solid var(--chalk); outline-offset:1px; }
+
+/* descanso: −15 s / +15 s */
+.descanso-ajuste{ display:flex; gap:8px; }
+.descanso-box .descanso-ajuste .btn{ flex:1 1 0; margin-top:0; min-width:64px; justify-content:center; }
+@media (max-width: 900px){
+  .descanso-box .descanso-ajuste{ flex:1 1 100%; }
+  .descanso-box .descanso-ajuste .btn{ min-height:48px; font-size:16px; }
+}
+
+/* observação por exercício */
+.obs-box{ margin-top:14px; border:1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding:10px 12px; }
+.obs-box summary{ cursor:pointer; font-weight:700; font-size:14px; color: var(--text); min-height:28px; display:flex; align-items:center; }
+.obs-box[open] summary{ margin-bottom:8px; }
+.obs-box textarea{
+  width:100%; resize:vertical; min-height:64px; padding:9px 12px;
+  background: var(--surface); color: var(--text); border:1px solid #C9D3E6; border-radius: var(--radius);
+  font-family: inherit; font-size:14px; line-height:1.4;
+}
+.obs-box textarea:focus{ border-color: var(--text); outline:none; }
+:root[data-theme="dark"] .obs-box textarea{ border-color: var(--line-strong); color-scheme: dark; }
+:root[data-theme="dark"] .obs-box textarea:focus{ border-color: var(--chalk); }
+.obs-anterior{ margin:0 0 8px; }
+.obs-line{ margin:6px 0 0; }
+@media (max-width: 900px){ .obs-box textarea{ font-size:16px; } }
+
+/* recorde pessoal */
+.recorde-box{
+  display:flex; flex-direction:column; gap:4px; margin:16px 0 4px;
+  background: rgba(255,201,60,.18); border:1px solid var(--chalk); border-radius: var(--radius-lg); padding:14px 18px;
+  font-size:14px; color: var(--text);
+}
+.recorde-box strong{ font-size:17px; font-weight:800; }
+.badge-pr{
+  display:inline-flex; align-items:center; gap:4px; white-space:nowrap; margin-left:8px;
+  font-size:12px; font-weight:800; padding:2px 8px; border-radius:100px;
+  background: var(--chalk); color: var(--chalk-ink);
+}
+.hist-card-meta .badge-pr{ margin-left:0; }
+
+/* =========================================================
+   HOME — progresso de água/calorias e painel "Sua semana"
+   ========================================================= */
+.today-bar{ margin-top:8px; height:7px; }
+.home-semana{ margin-bottom: 28px; }
+.home-semana h2{ margin-bottom:8px; }
+.semana-titulo{ font-size:17px; font-weight:800; color: var(--text); margin-bottom:10px; }
+.home-semana .today-bar{ margin: 0 0 14px; height:8px; }
+.semana-dias{ display:flex; gap:8px; }
+.semana-dia{
+  flex:1 1 0; max-width:44px; aspect-ratio:1; border-radius:50%;
+  display:grid; place-items:center; font-size:13px; font-weight:700;
+  border:1px solid var(--line); background: var(--surface-2); color: var(--text-muted);
+}
+.semana-dia.feito{ background: var(--chalk); border-color: var(--chalk); color: var(--chalk-ink); font-weight:800; }
+.semana-dia.hoje{ box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+.semana-seq{ margin:12px 0 0; }
+@media (max-width: 900px){
+  .home-semana{ margin-bottom:20px; }
 }
