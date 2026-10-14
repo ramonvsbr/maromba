@@ -16,6 +16,8 @@ const STORAGE_KEYS = {
   AGUA: 'maromba_agua',
   AGUA_CONFIG: 'maromba_agua_config',
   EQUIP_VISTO: 'maromba_equip_visto',
+  META_SEMANA: 'maromba_meta_semana',              // dias de treino por semana (0 = automático)
+  ALIMENTOS_FAV: 'maromba_alimentos_favoritos',    // ids de alimentos favoritos
   ULTIMO_BACKUP: 'maromba_ultimo_backup',          // ISO da última exportação (só deste aparelho; não entra no backup)
   BACKUP_ADIADO: 'maromba_backup_aviso_adiado',    // timestamp até quando o aviso da home fica quieto
 };
@@ -79,6 +81,29 @@ function getAguaConfig() {
   });
 }
 function setAguaConfig(obj) { saveJSON(STORAGE_KEYS.AGUA_CONFIG, obj); }
+
+// meta de dias na academia por semana (1 a 7). 0 = automático: usa o nº de treinos montados.
+function getMetaSemana() {
+  const v = Math.round(Number(loadJSON(STORAGE_KEYS.META_SEMANA, 0)));
+  return v >= 1 && v <= 7 ? v : 0;
+}
+function setMetaSemana(n) { saveJSON(STORAGE_KEYS.META_SEMANA, n); }
+// alimentos favoritos (só os ids)
+function getFavFoods() { return loadJSON(STORAGE_KEYS.ALIMENTOS_FAV, []); }
+function setFavFoods(arr) { saveJSON(STORAGE_KEYS.ALIMENTOS_FAV, arr); }
+// últimos alimentos usados, derivados do próprio histórico de refeições
+// (mais recentes primeiro, sem repetir). Não precisa de storage extra.
+function alimentosRecentesIds(limite = 8) {
+  const refeicoes = getDieta().slice().sort((a, b) => (b.data + ' ' + b.horario).localeCompare(a.data + ' ' + a.horario));
+  const ids = [];
+  for (const r of refeicoes) {
+    for (const ing of r.ingredientes) {
+      if (ing.alimentoId && !ids.includes(ing.alimentoId)) ids.push(ing.alimentoId);
+      if (ids.length >= limite) return ids;
+    }
+  }
+  return ids;
+}
 
 // ---------- lembrete de backup ----------
 // Usa localStorage direto (sem saveJSON) pra uma falha aqui nunca gerar toast.
@@ -252,6 +277,7 @@ const ICON_UP = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:
 const ICON_DOWN = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>';
 const ICON_DOWNLOAD = '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>';
 const ICON_UPLOAD = '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M4 4h16"/></svg>';
+const ICON_COPY = '<svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
 
 // ---------- modal de confirmação (substitui confirm() nativo) ----------
 function showConfirm(message, onConfirm, opts = {}) {
@@ -389,14 +415,15 @@ const AGUA_CONFIG_MOUNT = document.getElementById('agua-config-mount');
 const MODAL_AGUA_CONFIG = document.getElementById('modal-agua-config');
 
 const COLLATOR_PT = new Intl.Collator('pt-BR');
-let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'equipamentos' | 'exercicios' | 'dieta' | 'agua'
+let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'exercicios' | 'dieta' | 'agua'
 // Aba atual persistida no sessionStorage: sobrevive ao recarregar a página,
 // mas uma nova abertura do app começa na tela inicial.
 const TAB_STORAGE_KEY = 'maromba_aba_atual';
-const TABS_VALIDAS = ['meus-treinos', 'sessao', 'historico', 'equipamentos', 'exercicios', 'dieta', 'agua'];
+const TABS_VALIDAS = ['meus-treinos', 'sessao', 'historico', 'exercicios', 'dieta', 'agua'];
 function loadSavedTab() {
   try {
     const t = sessionStorage.getItem(TAB_STORAGE_KEY);
+    if (t === 'equipamentos') return 'exercicios';
     return TABS_VALIDAS.includes(t) ? t : null;
   } catch (e) { return null; }
 }
@@ -415,6 +442,8 @@ let draftExercicioCustom = null;  // exercício personalizado sendo cadastrado
 let sessaoHistAberta = null;
 let exercicioGraficoSelecionado = null;
 let dietaData = todayISO();       // dia sendo visualizado na aba Dieta
+let copiarDiaOrigem = null;       // dia de origem escolhido em "Repetir refeições de outro dia" (null = dia anterior ao aberto)
+let copiarDiaAberto = false;      // o painel "Repetir refeições" está expandido?
 let refeicaoAberta = null;        // id da refeição expandida na lista do dia
 let draftRefeicao = null;         // refeição sendo criada/editada no modal
 let buscaAlimentoForm = '';       // termo de busca de alimento dentro do modal de refeição
@@ -426,7 +455,7 @@ let aguaData = todayISO();        // dia sendo visualizado na aba Água
 let draftAguaConfig = null;       // config de meta/lembretes de água sendo editada no modal
 let aguaChipSel = null;           // chip de ml selecionado na aba Água: número do preset ou 'outro' (null = ainda não inicializado)
 let aguaCustomMl = '';            // texto do campo "Outro" (ml)
-const AGUA_PRESETS = [200, 250, 300, 500, 750, 1000]; // ml — medidas rápidas padronizadas
+const AGUA_PRESETS = [200, 250, 300, 500]; // ml — medidas rápidas padronizadas
 const OPCOES_REFEICAO = ['Café da manhã', 'Almoço', 'Janta', 'Ceia', 'Lanche']; // tipos de refeição (seleção única)
 
 const PERIODOS_GRAFICO = [
@@ -522,16 +551,16 @@ function clearSessaoTimers() {
 }
 
 function render() {
+  if (currentTab === 'equipamentos') currentTab = 'exercicios';
+  if (currentTab === 'sessao' && !getSessaoAtiva()) currentTab = 'meus-treinos';
   registrarMudancaDeAba();
-  if (currentTab !== 'equipamentos') voltarParaMontar = false; // saiu da tela de equipamentos: o botão "Continuar" não vale mais
+  if (currentTab !== 'exercicios') voltarParaMontar = false; // saiu da Biblioteca: o botão "Continuar" não vale mais
   saveCurrentTab();
-  document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
+  document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === (currentTab === 'sessao' ? 'meus-treinos' : currentTab)));
   // Botão "Mais" do rodapé mobile: fica marcado como ativo quando a aba
-  // atual é uma das que moraram pra dentro do menu (histórico/equipamentos/exercícios).
+  // atual é uma das que moraram pra dentro do menu (histórico/exercícios).
   const navMoreToggle = document.getElementById('btn-nav-more');
-  if (navMoreToggle) navMoreToggle.classList.toggle('active', ['historico', 'equipamentos', 'exercicios'].includes(currentTab));
-  const ativaBtn = document.querySelector('.nav-btn[data-tab="sessao"]');
-  if (ativaBtn) ativaBtn.classList.toggle('has-live', !!getSessaoAtiva());
+  if (navMoreToggle) navMoreToggle.classList.toggle('active', ['historico', 'exercicios'].includes(currentTab));
 
   if (currentTab !== 'sessao') { clearSessaoTimers(); releaseWakeLock(); }
 
@@ -539,7 +568,6 @@ function render() {
     case 'meus-treinos': renderMeusTreinos(); break;
     case 'sessao': renderSessao(); break;
     case 'historico': renderHistorico(); break;
-    case 'equipamentos': renderEquipamentos(); break;
     case 'exercicios': renderExercicios(); break;
     case 'dieta': renderDieta(); break;
     case 'agua': renderAgua(); break;
@@ -548,10 +576,10 @@ function render() {
 }
 
 // ================= MODAIS =================
-// Antes de montar o primeiro treino, a pessoa precisa passar pela tela
-// Equipamentos (é ela que define quais exercícios aparecem no seletor).
+// Antes de montar o primeiro treino, a pessoa precisa abrir a seção de
+// equipamentos na Biblioteca (ela define quais exercícios aparecem no seletor).
 // O flag fica salvo só neste aparelho; não entra no backup.
-let voltarParaMontar = false; // true = veio redirecionada pra Equipamentos e deve retornar ao "Adicionar treino"
+let voltarParaMontar = false; // true = veio redirecionada à Biblioteca para continuar o treino
 function equipamentosVistos() {
   try { return localStorage.getItem(STORAGE_KEYS.EQUIP_VISTO) === '1'; } catch (e) { return true; }
 }
@@ -562,7 +590,8 @@ function marcarEquipamentosVistos() {
 function openMontarNovo() {
   if (getTreinos().length === 0 && !equipamentosVistos()) {
     voltarParaMontar = true;
-    currentTab = 'equipamentos';
+    equipAberto = true;
+    currentTab = 'exercicios';
     render();
     toast('Primeiro, marque os equipamentos da sua academia.');
     return;
@@ -650,48 +679,63 @@ function closeAguaConfig() {
   draftAguaConfig = null;
 }
 
-// ================= EQUIPAMENTOS =================
-function renderEquipamentos() {
-  marcarEquipamentosVistos();
+// ================= EQUIPAMENTOS (seção dentro de Exercícios) =================
+let equipAberto = false; // a seção "Meus equipamentos" está expandida?
+
+function equipamentosSecaoHTML() {
   const selected = new Set(getEquip());
-  APP.innerHTML = `
-    <section class="panel">
-      <h1>Equipamentos</h1>
-      <p class="sub">Marque o que você tem disponível na academia. Isso define quais exercícios aparecem pra montar treino.</p>
-      ${voltarParaMontar ? `
-        <div class="actions-row">
-          <button id="btn-equip-continuar" class="btn btn-accent">Continuar e montar treino →</button>
-        </div>` : ''}
+  return `
+    ${voltarParaMontar ? `
       <div class="actions-row">
-        <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
-        <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
+        <button id="btn-equip-continuar" class="btn btn-accent">Continuar e montar treino →</button>
+      </div>` : ''}
+    <details class="picker" id="equip-det" ${equipAberto ? 'open' : ''}>
+      <summary>${ICO_DUMBBELL}Meus equipamentos (<span id="equip-count">${selected.size} marcado(s)</span>)</summary>
+      <div class="picker-body">
+        <p class="hint">Marque o que você tem disponível na academia. Isso define quais exercícios aparecem pra montar treino.</p>
+        <div class="actions-row">
+          <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
+          <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
+        </div>
+        <div class="equip-grid">
+          ${EQUIPMENT.map(eq => `
+            <label class="equip-item">
+              <input type="checkbox" data-equip="${eq.id}" ${selected.has(eq.id) ? 'checked' : ''}/>
+              <span>${eq.nome}</span>
+            </label>`).join('')}
+        </div>
+        <p class="hint">Exercícios que usam só o peso do corpo continuam disponíveis mesmo sem marcar nada.</p>
+        <div id="equip-saved" class="saved-flag" hidden>Salvo ✓</div>
       </div>
-      <div class="equip-grid">
-        ${EQUIPMENT.map(eq => `
-          <label class="equip-item">
-            <input type="checkbox" data-equip="${eq.id}" ${selected.has(eq.id) ? 'checked' : ''}/>
-            <span>${eq.nome}</span>
-          </label>`).join('')}
-      </div>
-      <p class="hint">Exercícios que usam só o peso do corpo continuam disponíveis mesmo sem marcar nada.</p>
-      <div id="equip-saved" class="saved-flag" hidden>Salvo ✓</div>
-    </section>`;
+    </details>`;
+}
+
+function bindEquipamentos(aoMudar) {
+  const det = document.getElementById('equip-det');
+  det.addEventListener('toggle', () => {
+    equipAberto = det.open;
+    if (det.open) marcarEquipamentosVistos();
+  });
 
   APP.querySelectorAll('[data-equip]').forEach(input => {
     input.addEventListener('change', () => {
       const set = new Set(getEquip());
       if (input.checked) set.add(input.dataset.equip); else set.delete(input.dataset.equip);
       setEquip([...set]);
+      const cont = document.getElementById('equip-count');
+      if (cont) cont.textContent = `${set.size} marcado(s)`;
       const el = document.getElementById('equip-saved');
       el.hidden = false;
       clearTimeout(el._t);
       el._t = setTimeout(() => { el.hidden = true; }, 1200);
+      aoMudar(); // atualiza a lista de exercícios filtrada por equipamento
     });
   });
 
   const btnContinuar = document.getElementById('btn-equip-continuar');
   if (btnContinuar) btnContinuar.addEventListener('click', () => {
     voltarParaMontar = false;
+    equipAberto = false;
     currentTab = 'meus-treinos';
     render();
     openMontarNovo();
@@ -699,12 +743,12 @@ function renderEquipamentos() {
 
   document.getElementById('btn-marcar-todos').addEventListener('click', () => {
     setEquip(EQUIPMENT.map(eq => eq.id));
-    renderEquipamentos();
+    renderExercicios();
     toast('Todos marcados');
   });
   document.getElementById('btn-desmarcar-todos').addEventListener('click', () => {
     setEquip([]);
-    renderEquipamentos();
+    renderExercicios();
     toast('Todos desmarcados');
   });
 }
@@ -761,6 +805,8 @@ async function exportarDados() {
       metaDieta: getMetaDieta(),
       agua: getAgua(),
       aguaConfig: getAguaConfig(),
+      metaSemana: getMetaSemana(),
+      alimentosFavoritos: getFavFoods(),
     },
   };
   const json = JSON.stringify(payload, null, 2);
@@ -863,11 +909,15 @@ function importarDados(file) {
       if (metaDieta && typeof metaDieta === 'object') setMetaDieta(metaDieta);
       const aguaConfig = normalizarCampoImportado(bruto.aguaConfig);
       if (aguaConfig && typeof aguaConfig === 'object') setAguaConfig(aguaConfig);
+      const metaSemana = normalizarCampoImportado(bruto.metaSemana);
+      if (typeof metaSemana === 'number') setMetaSemana(metaSemana);
+      const favoritos = normalizarCampoImportado(bruto.alimentosFavoritos);
+      if (Array.isArray(favoritos)) setFavFoods(favoritos);
       agendarLembretesAgua(getAguaConfig());
       aguaChipSel = null; // recalcula o chip a partir do ultimoMl do backup
       toast('Dados importados com sucesso!');
       closeConfig();
-      currentTab = getSessaoAtiva() ? 'sessao' : 'meus-treinos';
+      currentTab = 'meus-treinos';
       render();
     }, { okLabel: 'Importar e substituir' });
   };
@@ -877,21 +927,15 @@ function importarDados(file) {
 
 // ================= EXERCÍCIOS =================
 function renderExercicios() {
-  const equipSet = new Set(getEquip());
-  let lista = allExercises().filter(ex =>
-    filtroMusculo === 'todos' || ex.musculos.primarios.includes(filtroMusculo) || ex.musculos.secundarios.includes(filtroMusculo)
-  );
-  if (somenteDisponiveis) lista = lista.filter(ex => exerciseAvailable(ex, equipSet));
-  const termoBusca = filtroBusca.trim().toLowerCase();
-  if (termoBusca) lista = lista.filter(ex => ex.nome.toLowerCase().includes(termoBusca));
-  lista = lista.slice().sort((a, b) => COLLATOR_PT.compare(a.nome, b.nome));
-
+  if (equipAberto) marcarEquipamentosVistos();
   APP.innerHTML = `
     <section class="panel">
       <div class="section-head">
         <h1>Biblioteca de exercícios</h1>
         <button id="btn-novo-exercicio-custom" class="btn btn-ghost btn-small" style="margin-top:0">+ Exercício personalizado</button>
       </div>
+
+      ${equipamentosSecaoHTML()}
 
       <div class="filters-row">
         <input type="text" id="f-busca" placeholder="Buscar por nome..." value="${escapeHtml(filtroBusca)}"/>
@@ -904,37 +948,47 @@ function renderExercicios() {
           Só o que dá pra fazer com meus equipamentos
         </label>
       </div>
-      <div class="exlist">
-        ${lista.length ? lista.map(ex => exCardHTML(ex, equipSet)).join('') : `<p class="empty">Nenhum exercício encontrado com esse filtro.</p>`}
-      </div>
+      <div class="exlist" id="exlist"></div>
     </section>`;
 
-  const buscaInput = document.getElementById('f-busca');
-  buscaInput.addEventListener('input', e => {
-    filtroBusca = e.target.value;
-    const pos = e.target.selectionStart;
-    renderExercicios();
-    const el = document.getElementById('f-busca');
-    el.focus();
-    el.setSelectionRange(pos, pos);
-  });
-  document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderExercicios(); });
-  document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderExercicios(); });
+  document.getElementById('f-busca').addEventListener('input', e => { filtroBusca = e.target.value; renderListaExercicios(); });
+  document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderListaExercicios(); });
+  document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderListaExercicios(); });
   document.getElementById('btn-novo-exercicio-custom').addEventListener('click', openExercicioCustom);
-  APP.querySelectorAll('.ex-card').forEach(card => {
+  bindEquipamentos(renderListaExercicios);
+  renderListaExercicios();
+}
+
+function renderListaExercicios() {
+  const el = document.getElementById('exlist');
+  if (!el) return;
+  const equipSet = new Set(getEquip());
+  let lista = allExercises().filter(ex =>
+    filtroMusculo === 'todos' || ex.musculos.primarios.includes(filtroMusculo) || ex.musculos.secundarios.includes(filtroMusculo)
+  );
+  if (somenteDisponiveis) lista = lista.filter(ex => exerciseAvailable(ex, equipSet));
+  const termoBusca = filtroBusca.trim().toLowerCase();
+  if (termoBusca) lista = lista.filter(ex => ex.nome.toLowerCase().includes(termoBusca));
+  lista = lista.slice().sort((a, b) => COLLATOR_PT.compare(a.nome, b.nome));
+
+  el.innerHTML = lista.length
+    ? lista.map(ex => exCardHTML(ex, equipSet)).join('')
+    : '<p class="empty">Nenhum exercício encontrado com esse filtro.</p>';
+
+  el.querySelectorAll('.ex-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.dataset.id;
       exercicioAberto = exercicioAberto === id ? null : id;
-      renderExercicios();
+      renderListaExercicios();
     });
   });
-  APP.querySelectorAll('[data-del-custom]').forEach(btn => {
+  el.querySelectorAll('[data-del-custom]').forEach(btn => {
     btn.addEventListener('click', ev => {
       ev.stopPropagation();
       showConfirm('Excluir este exercício personalizado? Treinos que já o usam vão manter apenas o nome salvo.', () => {
         setCustomExercises(getCustomExercises().filter(e => e.id !== btn.dataset.delCustom));
         exercicioAberto = null;
-        renderExercicios();
+        renderListaExercicios();
         toast('Exercício personalizado excluído.');
       });
     });
@@ -1166,8 +1220,15 @@ function salvarExercicioCustom() {
     personalizado: true,
   };
   setCustomExercises([...getCustomExercises(), novo]);
-  draftExercicioCustom = { nome: '', equipamento: [], primarios: [], secundarios: [] };
+  const viaMontar = !MODAL_MONTAR.hidden && !!draftTreino;
   closeExercicioCustom();
+  if (viaMontar) {
+    draftTreino.exercicios.push({ exercicioId: novo.id, series: 3, repeticoes: 10, peso: 0, pausa: 60 });
+    montarPickerAberto = false;
+    renderMontarTreino();
+    toast('Exercício criado e adicionado ao treino!');
+    return;
+  }
   currentTab = 'exercicios';
   render();
   toast('Exercício personalizado salvo!');
@@ -1209,6 +1270,7 @@ function renderMontarTreino() {
           </div>
           <input type="text" id="busca-montagem" placeholder="Buscar exercício por nome..." value="${escapeHtml(buscaMontagem)}"/>
           <div class="picker-list" id="picker-list"></div>
+          <button type="button" id="btn-novo-exercicio-custom-montar" class="btn btn-ghost btn-small">+ Exercício personalizado</button>
         </div>
       </details>
 
@@ -1247,6 +1309,7 @@ function renderMontarTreino() {
     buscaMontagem = e.target.value;
     renderPickerList();
   });
+  document.getElementById('btn-novo-exercicio-custom-montar').addEventListener('click', openExercicioCustom);
   renderPickerList();
 
   MONTAR_MOUNT.querySelectorAll('[data-remove-idx]').forEach(btn => {
@@ -1326,7 +1389,7 @@ function renderPickerList() {
 }
 
 function draftRowHTML(cfg, i, total) {
-  const ex = exerciseById(cfg.exercicioId);
+  const ex = exerciseById(cfg.exercicioId) || { nome: cfg.exercicioId, musculos: { primarios: [] } };
   return `
     <div class="draft-row draft-row-reorderable">
       <div class="reorder-btns">
@@ -1454,19 +1517,22 @@ function avisoBackupHTML() {
     </div>`;
 }
 
-// Barra fina de progresso "atual / meta" para o painel Hoje ('' se não há meta).
-function barraHojeHTML(atual, meta) {
+// Barra de progresso única "atual / meta". Retorna '' se não há meta.
+// fina: versão compacta do painel Hoje/Sua semana. aria: rótulo para leitores de tela.
+function barraProgressoHTML(atual, meta, { fina = false, aria = '' } = {}) {
   if (!meta || meta <= 0) return '';
   const pct = Math.max(0, Math.min(100, Math.round((atual / meta) * 100)));
-  return `<div class="meta-bar-track today-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.round(atual)}">
+  return `<div class="meta-bar-track${fina ? ' today-bar' : ''}" role="progressbar"${aria ? ` aria-label="${aria}"` : ''} aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.round(Math.min(atual, meta))}">
     <div class="meta-bar-fill ${atual > meta ? 'over' : ''}" style="width:${pct}%"></div>
   </div>`;
 }
 
-// Painel "Sua semana": treinos da semana (segunda a domingo) em relação aos
-// treinos montados, bolinhas dos dias e sequência de dias seguidos.
-// A "meta" é o número de treinos montados (limitado a 7): com Treino A/B/C/D
-// montados, a meta da semana é 4.
+// Painel "Sua semana": dias de treino da semana (segunda a domingo) em relação
+// à meta de dias, bolinhas dos dias e sequência de dias seguidos.
+// A meta vem da configuração (1 a 7 dias por semana); no modo "Automático" é o
+// número de treinos montados (limitado a 7): com Treino A/B/C/D montados, a
+// meta da semana é 4. Conta dias distintos treinados (duas sessões no mesmo
+// dia contam como 1).
 const SEQUENCIA_DESCANSO_MAX = 1; // dias de descanso seguidos que ainda não quebram a sequência
 function resumoSemanaHTML(treinos, hist, hoje) {
   if (!treinos.length && !hist.length) return ''; // app vazio: o estado vazio já convida a começar
@@ -1474,14 +1540,14 @@ function resumoSemanaHTML(treinos, hist, hoje) {
   const inicio = shiftDateISO(hoje, -((dow + 6) % 7));         // segunda-feira desta semana
   const dias = Array.from({ length: 7 }, (_, i) => shiftDateISO(inicio, i));
   const treinou = new Set(hist.map(h => h.data));
-  const feitos = hist.filter(h => h.data >= dias[0] && h.data <= dias[6]).length;
-  const meta = Math.min(7, treinos.length);
-  const pct = meta > 0 ? Math.min(100, Math.round((feitos / meta) * 100)) : 0;
+  const feitos = new Set(hist.filter(h => h.data >= dias[0] && h.data <= dias[6]).map(h => h.data)).size;
+  const metaManual = getMetaSemana();
+  const meta = metaManual > 0 ? metaManual : Math.min(7, treinos.length);
 
   let titulo;
-  if (meta > 0 && feitos < meta) titulo = `${feitos} de ${meta} treinos esta semana`;
-  else if (meta > 0) titulo = `${feitos} ${feitos === 1 ? 'treino' : 'treinos'} esta semana · meta batida 🎉`;
-  else titulo = `${feitos} ${feitos === 1 ? 'treino' : 'treinos'} esta semana`;
+  if (meta > 0 && feitos < meta) titulo = `${feitos} de ${meta} dias de treino esta semana`;
+  else if (meta > 0) titulo = `${feitos} ${feitos === 1 ? 'dia' : 'dias'} de treino esta semana · meta batida 🎉`;
+  else titulo = `${feitos} ${feitos === 1 ? 'dia' : 'dias'} de treino esta semana`;
 
   // sequência: dias de treino encadeados, tolerando até SEQUENCIA_DESCANSO_MAX
   // dias de descanso entre dois treinos (com 1, treinar segunda e quarta
@@ -1520,11 +1586,18 @@ function resumoSemanaHTML(treinos, hist, hoje) {
     <div class="side-card home-semana">
       <h2>Sua semana</h2>
       <div class="semana-titulo">${titulo}</div>
-      ${meta > 0 ? `<div class="meta-bar-track today-bar" role="progressbar" aria-label="Treinos da semana" aria-valuemin="0" aria-valuemax="${meta}" aria-valuenow="${Math.min(feitos, meta)}"><div class="meta-bar-fill" style="width:${pct}%"></div></div>` : ''}
+      ${barraProgressoHTML(Math.min(feitos, meta), meta, { fina: true, aria: 'Dias de treino da semana' })}
       <div class="semana-dias">
         ${dias.map((d, i) => `<span class="semana-dia ${treinou.has(d) ? 'feito' : ''} ${d === hoje ? 'hoje' : ''}" title="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}" aria-label="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}">${letras[i]}</span>`).join('')}
       </div>
       <p class="hint semana-seq">${textoSeq}</p>
+      <label class="semana-meta-sel" style="display:block;margin-top:10px">
+        <span class="hint">Meta de dias na academia</span>
+        <select data-meta-semana>
+          <option value="0" ${metaManual === 0 ? 'selected' : ''}>Automático (${treinos.length} ${treinos.length === 1 ? 'treino montado' : 'treinos montados'})</option>
+          ${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${metaManual === n ? 'selected' : ''}>${n} ${n === 1 ? 'dia' : 'dias'} por semana</option>`).join('')}
+        </select>
+      </label>
     </div>`;
 }
 
@@ -1532,8 +1605,6 @@ function renderMeusTreinos() {
   const sessaoAtiva = getSessaoAtiva();
   const treinos = getTreinos();
   const hist = getHistorico();
-  const mesAtual = todayISO().slice(0, 7);
-  const sessoesMes = hist.filter(h => h.data.slice(0, 7) === mesAtual).length;
   const ultimaSessao = hist.slice().sort((a, b) => b.data.localeCompare(a.data))[0];
 
   const hoje = todayISO();
@@ -1564,20 +1635,7 @@ function renderMeusTreinos() {
       ${continuarTreinoHTML(sessaoAtiva)}
       ${avisoBackupHTML()}
 
-      <div class="stat-strip">
-        <div class="stat-card stat-card-ico">
-          <span class="stat-ico ico-yellow">${ICO_DUMBBELL}</span>
-          <div class="stat-body"><span class="stat-label">Treinos montados</span><span class="stat-value">${treinos.length}</span></div>
-        </div>
-        <div class="stat-card stat-card-ico">
-          <span class="stat-ico ico-blue">${ICO_CAL}</span>
-          <div class="stat-body"><span class="stat-label">Sessões este mês</span><span class="stat-value">${sessoesMes}</span></div>
-        </div>
-        <div class="stat-card stat-card-ico">
-          <span class="stat-ico ico-green">${ICO_CLOCK}</span>
-          <div class="stat-body"><span class="stat-label">Último treino feito</span><span class="stat-value small">${ultimaSessao ? `${escapeHtml(ultimaSessao.treinoNome)} · ${formatDateBR(ultimaSessao.data)}` : '—'}</span></div>
-        </div>
-      </div>
+      ${ultimaSessao ? `<p class="hint home-ultimo">Último treino: <strong>${escapeHtml(ultimaSessao.treinoNome)}</strong> · ${formatDateBR(ultimaSessao.data)}</p>` : ''}
 
       ${resumoSemanaHTML(treinos, hist, hoje)}
 
@@ -1586,12 +1644,12 @@ function renderMeusTreinos() {
         <div class="today-rows">
           <div class="today-row">
             <span class="today-ico">${ICO_DROP}</span>
-            <div class="today-txt">Água<small>${aguaHoje > 0 ? `${aguaHoje} ml${metaAgua > 0 ? ` de ${metaAgua} ml` : ''}` : 'Nenhuma água registrada'}</small>${barraHojeHTML(aguaHoje, metaAgua)}</div>
+            <div class="today-txt">Água<small>${aguaHoje > 0 ? `${aguaHoje} ml${metaAgua > 0 ? ` de ${metaAgua} ml` : ''}` : 'Nenhuma água registrada'}</small>${barraProgressoHTML(aguaHoje, metaAgua, { fina: true })}</div>
             <button class="today-btn" data-agua-quick aria-label="Registrar ${mlRapido} ml de água" title="+${mlRapido} ml">${ICO_PLUS}</button>
           </div>
           <div class="today-row">
             <span class="today-ico">${ICO_FOOD}</span>
-            <div class="today-txt">Dieta<small>${textoDietaHoje}</small>${barraHojeHTML(kcalHoje, metaKcal)}</div>
+            <div class="today-txt">Dieta<small>${textoDietaHoje}</small>${barraProgressoHTML(kcalHoje, metaKcal, { fina: true })}</div>
             <button class="today-btn" data-refeicao-quick aria-label="Registrar refeição" title="Registrar refeição">${ICO_PLUS}</button>
           </div>
         </div>
@@ -1625,6 +1683,12 @@ function renderMeusTreinos() {
       setAgua(getAgua().filter(r => r.id !== novo.id));
       if (currentTab === 'meus-treinos') render();
     });
+  });
+  const selMetaSemana = APP.querySelector('[data-meta-semana]');
+  if (selMetaSemana) selMetaSemana.addEventListener('change', () => {
+    setMetaSemana(Number(selMetaSemana.value));
+    render();
+    toast('Meta da semana atualizada.');
   });
   if (sessaoAtiva) iniciarTempoCartaoContinuar(sessaoAtiva);
   const btnContinuar = APP.querySelector('[data-continuar]');
@@ -2394,7 +2458,6 @@ function metaDefinida(meta) {
 // meta específica não foi definida (0 ou vazio), pra não mostrar barra zerada
 function metaBarraHTML(label, atual, meta, casasDecimais, unidade) {
   if (!meta || meta <= 0) return '';
-  const pct = Math.max(0, Math.min(100, Math.round((atual / meta) * 100)));
   const estourou = atual > meta;
   const fmt = n => casasDecimais ? n.toFixed(casasDecimais) : Math.round(n);
   return `
@@ -2403,9 +2466,7 @@ function metaBarraHTML(label, atual, meta, casasDecimais, unidade) {
         <span class="meta-row-label">${label}</span>
         <span class="meta-row-value ${estourou ? 'over' : ''}">${fmt(atual)} / ${fmt(meta)}${unidade}</span>
       </div>
-      <div class="meta-bar-track">
-        <div class="meta-bar-fill ${estourou ? 'over' : ''}" style="width:${pct}%"></div>
-      </div>
+      ${barraProgressoHTML(atual, meta, { aria: label })}
     </div>`;
 }
 function metaProgressoHTML(totais, meta) {
@@ -2415,6 +2476,66 @@ function metaProgressoHTML(totais, meta) {
     metaBarraHTML('Carboidratos', totais.carb, meta.carb, 1, 'g'),
     metaBarraHTML('Gorduras', totais.gord, meta.gord, 1, 'g'),
   ].join('');
+}
+
+// copia refeições (com todos os ingredientes) para outro dia, com "Desfazer"
+function repetirRefeicoes(refeicoes, dataDestino) {
+  if (!refeicoes.length) return;
+  const copias = refeicoes.map(r => {
+    const c = JSON.parse(JSON.stringify(r));
+    c.id = uid();
+    c.data = dataDestino;
+    return c;
+  });
+  setDieta([...getDieta(), ...copias]);
+  refeicaoAberta = null;
+  if (currentTab === 'dieta') renderDieta();
+  const ids = new Set(copias.map(c => c.id));
+  desfazivel(copias.length === 1 ? 'Refeição repetida' : `${copias.length} refeições repetidas`, () => {
+    setDieta(getDieta().filter(r => !ids.has(r.id)));
+    if (currentTab === 'dieta') renderDieta();
+  });
+}
+
+// painel recolhível "Repetir refeições de outro dia"
+function copiarRefeicoesHTML() {
+  const origem = copiarDiaOrigem || shiftDateISO(dietaData, -1);
+  const refs = origem === dietaData
+    ? []
+    : getDieta().filter(r => r.data === origem).sort((a, b) => a.horario.localeCompare(b.horario));
+  let corpo;
+  if (origem === dietaData) {
+    corpo = '<p class="empty">Escolha um dia diferente do que está aberto.</p>';
+  } else if (!refs.length) {
+    corpo = '<p class="empty">Nenhuma refeição registrada nesse dia.</p>';
+  } else {
+    corpo = `
+      <div class="picker-list">
+        ${refs.map(r => {
+          const t = calcTotaisIngredientes(r.ingredientes);
+          return `
+            <button type="button" class="picker-item" data-repetir-refeicao="${r.id}">
+              <span class="picker-item-txt">
+                <span class="picker-item-name">${escapeHtml(r.nome)} · ${r.horario}</span>
+                <span class="picker-item-musc">${Math.round(t.kcal)} kcal · ${r.ingredientes.length} ingrediente(s)</span>
+              </span>
+              ${ICO_PLUS}
+            </button>`;
+        }).join('')}
+      </div>
+      <button id="btn-repetir-dia" class="btn btn-ghost btn-small">Copiar o dia todo (${refs.length})</button>`;
+  }
+  return `
+    <details class="picker" id="copiar-dia" ${copiarDiaAberto ? 'open' : ''}>
+      <summary>${ICON_COPY}Repetir refeições de outro dia</summary>
+      <div class="picker-body">
+        <div class="field-row-inline">
+          <label>Copiar de<input type="date" id="copiar-origem" value="${origem}"/></label>
+        </div>
+        <p class="hint">As refeições são copiadas para ${formatDateBR(dietaData)}, que é o dia aberto agora.</p>
+        ${corpo}
+      </div>
+    </details>`;
 }
 
 function renderDieta() {
@@ -2438,15 +2559,19 @@ function renderDieta() {
       </div>
 
       <div class="stat-strip stat-strip-4">
-        <div class="stat-card"><span class="stat-label">Calorias</span><span class="stat-value">${Math.round(totais.kcal)}${temMeta && meta.kcal > 0 ? ` <span class="stat-value-meta">/ ${Math.round(meta.kcal)}</span>` : ''}</span></div>
-        <div class="stat-card"><span class="stat-label">Proteínas</span><span class="stat-value small">${totais.prot.toFixed(1)}g${temMeta && meta.prot > 0 ? ` <span class="stat-value-meta">/ ${meta.prot.toFixed(1)}g</span>` : ''}</span></div>
-        <div class="stat-card"><span class="stat-label">Carboidratos</span><span class="stat-value small">${totais.carb.toFixed(1)}g${temMeta && meta.carb > 0 ? ` <span class="stat-value-meta">/ ${meta.carb.toFixed(1)}g</span>` : ''}</span></div>
-        <div class="stat-card"><span class="stat-label">Gorduras</span><span class="stat-value small">${totais.gord.toFixed(1)}g${temMeta && meta.gord > 0 ? ` <span class="stat-value-meta">/ ${meta.gord.toFixed(1)}g</span>` : ''}</span></div>
+        <div class="stat-card"><span class="stat-label">Calorias</span><span class="stat-value">${Math.round(totais.kcal)}</span></div>
+        <div class="stat-card"><span class="stat-label">Proteínas</span><span class="stat-value small">${totais.prot.toFixed(1)}g</span></div>
+        <div class="stat-card"><span class="stat-label">Carboidratos</span><span class="stat-value small">${totais.carb.toFixed(1)}g</span></div>
+        <div class="stat-card"><span class="stat-label">Gorduras</span><span class="stat-value small">${totais.gord.toFixed(1)}g</span></div>
       </div>
+
+      ${temMeta ? `<div class="side-card meta-progresso">${metaProgressoHTML(totais, meta)}</div>` : ''}
 
       <div class="actions-row">
         <button id="btn-nova-refeicao" class="btn btn-accent">+ Nova refeição</button>
       </div>
+
+      ${copiarRefeicoesHTML()}
 
       <h2 class="subtitle">Refeições de ${formatDateBR(dietaData)}</h2>
       ${doDia.length
@@ -2454,27 +2579,39 @@ function renderDieta() {
         : '<p class="empty">Nenhuma refeição registrada nesse dia.</p>'}
     </section>`;
 
+  const irParaDia = data => {
+    dietaData = data || todayISO();
+    refeicaoAberta = null;
+    copiarDiaOrigem = null; // volta a sugerir o dia anterior ao novo dia aberto
+    render();
+  };
+
   document.getElementById('btn-nova-refeicao').addEventListener('click', openRefeicaoNova);
   document.getElementById('btn-editar-meta').addEventListener('click', openMetaDieta);
-  document.getElementById('dieta-data-input').addEventListener('change', e => {
-    dietaData = e.target.value || todayISO();
-    refeicaoAberta = null;
-    render();
+  document.getElementById('dieta-data-input').addEventListener('change', e => irParaDia(e.target.value));
+  document.getElementById('btn-dia-hoje').addEventListener('click', () => irParaDia(todayISO()));
+  document.getElementById('btn-dia-anterior').addEventListener('click', () => irParaDia(shiftDateISO(dietaData, -1)));
+  document.getElementById('btn-dia-proximo').addEventListener('click', () => irParaDia(shiftDateISO(dietaData, 1)));
+
+  // repetir refeições de outro dia
+  const detCopiar = document.getElementById('copiar-dia');
+  if (detCopiar) detCopiar.addEventListener('toggle', () => { copiarDiaAberto = detCopiar.open; });
+  const inputOrigem = document.getElementById('copiar-origem');
+  if (inputOrigem) inputOrigem.addEventListener('change', e => {
+    copiarDiaOrigem = e.target.value || null;
+    copiarDiaAberto = true;
+    renderDieta();
   });
-  document.getElementById('btn-dia-hoje').addEventListener('click', () => {
-    dietaData = todayISO();
-    refeicaoAberta = null;
-    render();
+  APP.querySelectorAll('[data-repetir-refeicao]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = getDieta().find(x => x.id === btn.dataset.repetirRefeicao);
+      if (r) repetirRefeicoes([r], dietaData);
+    });
   });
-  document.getElementById('btn-dia-anterior').addEventListener('click', () => {
-    dietaData = shiftDateISO(dietaData, -1);
-    refeicaoAberta = null;
-    render();
-  });
-  document.getElementById('btn-dia-proximo').addEventListener('click', () => {
-    dietaData = shiftDateISO(dietaData, 1);
-    refeicaoAberta = null;
-    render();
+  const btnRepetirDia = document.getElementById('btn-repetir-dia');
+  if (btnRepetirDia) btnRepetirDia.addEventListener('click', () => {
+    const origem = copiarDiaOrigem || shiftDateISO(dietaData, -1);
+    repetirRefeicoes(getDieta().filter(r => r.data === origem), dietaData);
   });
 
   APP.querySelectorAll('[data-refeicao-toggle]').forEach(card => {
@@ -2632,31 +2769,71 @@ function renderRefeicaoForm() {
   atualizarTotaisRefeicao();
 }
 
-// lista tocável de alimentos (filtra por nome, sem diferenciar acento)
+// item tocável da lista de alimentos: botão de adicionar + estrela de favorito
+function alimentoItemHTML(f, favSet) {
+  const fav = favSet.has(f.id);
+  return `
+    <div style="display:flex;align-items:stretch;gap:4px">
+      <button type="button" class="picker-item" style="flex:1" data-add-food="${f.id}">
+        <span class="picker-item-txt">
+          <span class="picker-item-name">${escapeHtml(f.nome)}</span>
+          <span class="picker-item-musc">${f.kcal} kcal/100g</span>
+        </span>
+        ${ICO_PLUS}
+      </button>
+      <button type="button" class="btn-icon" data-fav-food="${f.id}" aria-pressed="${fav}"
+        aria-label="${fav ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}"
+        title="${fav ? 'Remover dos favoritos' : 'Favoritar'}">${fav ? '★' : '☆'}</button>
+    </div>`;
+}
+
+// lista tocável de alimentos. Sem busca: favoritos e recentes no topo, depois
+// todos. Com busca: só os que combinam (favoritos primeiro), sem diferenciar acento.
 function renderListaAlimentos() {
   const el = document.getElementById('alimento-list');
   if (!el) return;
   const termo = semAcento(buscaAlimentoForm.trim());
+  const favIds = getFavFoods();
+  const favSet = new Set(favIds);
   const todos = allFoods().slice().sort((a, b) => COLLATOR_PT.compare(a.nome, b.nome));
-  const opcoes = termo ? todos.filter(f => semAcento(f.nome).includes(termo)) : todos;
-  const visiveis = opcoes.slice(0, MAX_ALIMENTOS_LISTA);
+  const secao = titulo => `<p class="hint" style="margin:8px 0 2px">${titulo}</p>`;
+  let html = '';
 
-  el.innerHTML = (visiveis.length
-    ? visiveis.map(f => `
-        <button type="button" class="picker-item" data-add-food="${f.id}">
-          <span class="picker-item-txt">
-            <span class="picker-item-name">${escapeHtml(f.nome)}</span>
-            <span class="picker-item-musc">${f.kcal} kcal/100g</span>
-          </span>
-          ${ICO_PLUS}
-        </button>`).join('')
-    : '<p class="empty">Nenhum alimento encontrado com essa busca.</p>')
-    + (opcoes.length > MAX_ALIMENTOS_LISTA
-      ? `<p class="hint">Mostrando ${MAX_ALIMENTOS_LISTA} de ${opcoes.length}. Refine a busca para ver mais.</p>`
-      : '');
+  if (termo) {
+    const opcoes = todos.filter(f => semAcento(f.nome).includes(termo));
+    opcoes.sort((a, b) => (favSet.has(b.id) ? 1 : 0) - (favSet.has(a.id) ? 1 : 0)); // estável: mantém a ordem alfabética dentro de cada grupo
+    const visiveis = opcoes.slice(0, MAX_ALIMENTOS_LISTA);
+    html = visiveis.length
+      ? visiveis.map(f => alimentoItemHTML(f, favSet)).join('')
+      : '<p class="empty">Nenhum alimento encontrado com essa busca.</p>';
+    if (opcoes.length > MAX_ALIMENTOS_LISTA) {
+      html += `<p class="hint">Mostrando ${MAX_ALIMENTOS_LISTA} de ${opcoes.length}. Refine a busca para ver mais.</p>`;
+    }
+  } else {
+    const favoritos = favIds.map(id => foodById(id)).filter(Boolean);
+    const recentes = alimentosRecentesIds().filter(id => !favSet.has(id)).map(id => foodById(id)).filter(Boolean);
+    if (favoritos.length) html += secao('⭐ Favoritos') + favoritos.map(f => alimentoItemHTML(f, favSet)).join('');
+    if (recentes.length) html += secao('🕘 Usados recentemente') + recentes.map(f => alimentoItemHTML(f, favSet)).join('');
+    if (favoritos.length || recentes.length) html += secao('Todos os alimentos');
+    html += todos.slice(0, MAX_ALIMENTOS_LISTA).map(f => alimentoItemHTML(f, favSet)).join('');
+    if (todos.length > MAX_ALIMENTOS_LISTA) {
+      html += `<p class="hint">Mostrando ${MAX_ALIMENTOS_LISTA} de ${todos.length}. Use a busca para ver mais.</p>`;
+    }
+  }
+  el.innerHTML = html;
 
   el.querySelectorAll('[data-add-food]').forEach(btn => {
     btn.addEventListener('click', () => adicionarAlimentoRefeicao(btn.dataset.addFood));
+  });
+  el.querySelectorAll('[data-fav-food]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.favFood;
+      const atual = getFavFoods();
+      setFavFoods(atual.includes(id) ? atual.filter(x => x !== id) : [...atual, id]);
+      const rolagem = el.scrollTop;
+      renderListaAlimentos();
+      el.scrollTop = rolagem;
+    });
   });
 }
 
@@ -2940,16 +3117,14 @@ function aguaMlSelecionado() {
 function atualizarBotaoAddAgua() {
   const btn = document.getElementById('btn-agua-add');
   if (!btn) return;
-  const ml = aguaMlSelecionado();
-  btn.textContent = ml > 0 ? `Adicionar ${ml} ml` : 'Adicionar';
-  btn.disabled = !(ml > 0);
+  btn.disabled = !(aguaMlSelecionado() > 0);
 }
 
 function renderAgua() {
   aguaEstadoInicial();
   const config = getAguaConfig();
   const doDia = getAgua().filter(r => r.data === aguaData).sort((a, b) => a.horario.localeCompare(b.horario));
-  const total = doDia.reduce((soma, r) => soma + r.ml, 0);
+  const total = doDia.reduce((s, r) => s + r.ml, 0);
   const temMeta = config.metaMl > 0;
   const pct = temMeta ? Math.max(0, Math.min(100, Math.round((total / config.metaMl) * 100))) : 0;
   const estourou = temMeta && total > config.metaMl;
@@ -2975,21 +3150,19 @@ function renderAgua() {
             ? `<span class="meta-row-value ${estourou ? 'over' : ''}">${pct}% da meta de ${config.metaMl} ml</span>`
             : '<span class="hint">Nenhuma meta definida — toque em "Meta e lembretes".</span>'}
         </div>
-        ${temMeta ? `
-          <div class="meta-bar-track">
-            <div class="meta-bar-fill ${estourou ? 'over' : ''}" style="width:${pct}%"></div>
-          </div>` : ''}
+        ${barraProgressoHTML(total, config.metaMl)}
       </div>
 
-      <h2 class="subtitle">Adicionar</h2>
       <div class="chip-filter agua-chips" id="agua-chips">
         ${AGUA_PRESETS.map(ml => `<button type="button" class="chip-toggle ${aguaChipSel === ml ? 'active' : ''}" data-agua-chip="${ml}">${ml} ml</button>`).join('')}
         <button type="button" class="chip-toggle ${aguaChipSel === 'outro' ? 'active' : ''}" data-agua-chip="outro">Outro</button>
       </div>
-      <div class="field-row agua-outro" id="agua-outro-wrap" ${aguaChipSel === 'outro' ? '' : 'hidden'}>
-        <input type="number" min="1" step="1" inputmode="numeric" id="agua-custom-ml" placeholder="Quantia em ml" value="${escapeHtml(aguaCustomMl)}"/>
+      <div class="agua-add-row">
+        <div class="field-row agua-outro" id="agua-outro-wrap" ${aguaChipSel === 'outro' ? '' : 'hidden'}>
+          <input type="number" min="1" step="1" inputmode="numeric" id="agua-custom-ml" placeholder="Quantia em ml" value="${escapeHtml(aguaCustomMl)}"/>
+        </div>
+        <button id="btn-agua-add" class="btn btn-accent agua-add-btn">Adicionar</button>
       </div>
-      <button id="btn-agua-add" class="btn btn-accent agua-add-btn">Adicionar</button>
 
       <h2 class="subtitle">Registros de ${formatDateBR(aguaData)}</h2>
       ${doDia.length ? `
@@ -3013,8 +3186,6 @@ function renderAgua() {
   document.getElementById('btn-agua-dia-anterior').addEventListener('click', () => { aguaData = shiftDateISO(aguaData, -1); render(); });
   document.getElementById('btn-agua-dia-proximo').addEventListener('click', () => { aguaData = shiftDateISO(aguaData, 1); render(); });
 
-  // chips: seleção única, atualizada no lugar (sem redesenhar a tela).
-  // Só o botão "Adicionar" registra, então um toque errado não faz nada.
   const wrapOutro = document.getElementById('agua-outro-wrap');
   const inputCustom = document.getElementById('agua-custom-ml');
   APP.querySelectorAll('[data-agua-chip]').forEach(btn => {
@@ -3269,7 +3440,6 @@ document.addEventListener('DOMContentLoaded', () => {
   syncCustomFoods();
   const abaSalva = loadSavedTab();
   if (abaSalva) currentTab = abaSalva;
-  else if (getSessaoAtiva()) currentTab = 'sessao';
   render();
 
   // ---------- lembretes de água ----------

@@ -61,21 +61,14 @@ Feito com **JavaScript, HTML e CSS puros**, empacotado como APK com **Capacitor*
 ## 🚀 Como usar
 
 <details>
-<summary><b>1. 🏋️ Equipamentos</b></summary>
+<summary><b>1. 📚 Exercícios</b></summary>
 <br>
 
-Marque o que a sua academia tem. Isso filtra tudo o resto do app.
+Navegue por músculo. Só aparece o que dá para fazer com os equipamentos marcados (dá para desligar esse filtro). Toque num exercício para ver os músculos trabalhados na silhueta e o último peso registrado. A seção **Meus equipamentos** fica dentro da Biblioteca; abra-a para marcar o que a sua academia tem.
 </details>
 
 <details>
-<summary><b>2. 📚 Exercícios</b></summary>
-<br>
-
-Navegue por músculo. Só aparece o que dá para fazer com os equipamentos marcados (dá para desligar esse filtro). Toque num exercício para ver os músculos trabalhados na silhueta e o último peso registrado.
-</details>
-
-<details>
-<summary><b>3. 🧱 Montar treino</b></summary>
+<summary><b>2. 🧱 Montar treino</b></summary>
 <br>
 
 O botão amarelo fica no topo da tela inicial.
@@ -90,14 +83,14 @@ O topo mostra os músculos cobertos pelo treino inteiro e o tempo estimado.
 </details>
 
 <details>
-<summary><b>4. 📋 Meus treinos</b></summary>
+<summary><b>3. 📋 Meus treinos</b></summary>
 <br>
 
 Inicie, edite ou apague os treinos salvos.
 </details>
 
 <details>
-<summary><b>5. ▶️ Treino ativo</b></summary>
+<summary><b>4. ▶️ Treino ativo</b></summary>
 <br>
 
 Durante a execução você vê:
@@ -111,14 +104,14 @@ A tela não apaga sozinha (Wake Lock) e, ao fim de cada descanso, o app **apita 
 </details>
 
 <details>
-<summary><b>6. 📈 Histórico</b></summary>
+<summary><b>5. 📈 Histórico</b></summary>
 <br>
 
 Todas as sessões salvas, com data, duração e séries feitas. O gráfico no topo mostra a evolução de carga (maior peso por sessão) do exercício escolhido.
 </details>
 
 <details>
-<summary><b>7. 🍽️ Dieta</b></summary>
+<summary><b>6. 🍽️ Dieta</b></summary>
 <br>
 
 Registre as refeições do dia com horário, nome e ingredientes (quantidade em gramas).
@@ -133,7 +126,7 @@ Registre as refeições do dia com horário, nome e ingredientes (quantidade em 
 </details>
 
 <details>
-<summary><b>8. 💧 Água</b></summary>
+<summary><b>7. 💧 Água</b></summary>
 <br>
 
 Toque numa medida rápida (**200, 250, 300, 500, 750 ou 1000 ml**) ou digite uma quantidade personalizada. O topo mostra o total do dia e, com meta definida, uma barra de progresso (vermelha se passar da meta). Cada registro pode ser excluído individualmente.
@@ -154,7 +147,7 @@ Os lembretes são agendados no sistema: chegam **com o app fechado** e continuam
 </details>
 
 <details>
-<summary><b>9. ⚙️ Ajustes → Dados</b></summary>
+<summary><b>8. ⚙️ Ajustes → Dados</b></summary>
 <br>
 
 Exporte um `.json` com todo o seu backup ou importe um arquivo para restaurar ou migrar para outro aparelho.
