@@ -416,6 +416,7 @@ const MODAL_AGUA_CONFIG = document.getElementById('modal-agua-config');
 
 const COLLATOR_PT = new Intl.Collator('pt-BR');
 let currentTab = 'meus-treinos';          // 'meus-treinos' | 'sessao' | 'historico' | 'exercicios' | 'dieta' | 'agua'
+let subAbaExercicios = 'exercicios'; // 'exercicios' | 'equipamentos'
 // Aba atual persistida no sessionStorage: sobrevive ao recarregar a página,
 // mas uma nova abertura do app começa na tela inicial.
 const TAB_STORAGE_KEY = 'maromba_aba_atual';
@@ -437,7 +438,6 @@ let filtroBusca = '';
 let somenteDisponiveis = true;
 let exercicioAberto = null;
 let buscaMontagem = '';           // busca de exercício na tela "montar treino"
-let montarPickerAberto = false;    // seletor de exercícios expandido?
 let draftExercicioCustom = null;  // exercício personalizado sendo cadastrado
 let sessaoHistAberta = null;
 let exercicioGraficoSelecionado = null;
@@ -449,7 +449,7 @@ let draftRefeicao = null;         // refeição sendo criada/editada no modal
 let buscaAlimentoForm = '';       // termo de busca de alimento dentro do modal de refeição
 let draftAlimentoCustom = null;   // alimento personalizado sendo cadastrado
 let draftMetaDieta = null;        // meta de calorias/macros sendo editada no modal
-let graficoPeriodo = '3m';   // '1m' | '3m' | '6m' | '1a' | 'tudo'
+let graficoPeriodo = '1m';   // '1m' | '3m' | '6m' | '1a' | 'tudo'
 let graficoZoom = null;      // { inicio: 'AAAA-MM-DD', fim: 'AAAA-MM-DD' } | null — recorte extra por arraste no gráfico
 let aguaData = todayISO();        // dia sendo visualizado na aba Água
 let draftAguaConfig = null;       // config de meta/lembretes de água sendo editada no modal
@@ -495,17 +495,14 @@ function registrarMudancaDeAba() {
 }
 
 // Ordem de prioridade ao apertar voltar:
-// 1) confirmação aberta  2) menu "Mais"  3) modal aberto (o do topo)
-// 4) tela anterior da pilha  5) início  6) sair do app
+// 1) confirmação aberta  2) modal aberto (o do topo)
+// 3) tela anterior da pilha  4) início  5) sair do app
 function tratarBotaoVoltar() {
   const modalConfirm = document.getElementById('modal-confirm');
   if (modalConfirm && !modalConfirm.hidden) {
     document.getElementById('btn-confirm-cancel').click();
     return;
   }
-
-  const navMoreMenu = document.getElementById('nav-more-menu');
-  if (navMoreMenu && !navMoreMenu.hidden) { navMoreMenu.hidden = true; return; }
 
   const modais = [
     [MODAL_ALIMENTO_CUSTOM, closeAlimentoCustom],
@@ -557,11 +554,6 @@ function render() {
   if (currentTab !== 'exercicios') voltarParaMontar = false; // saiu da Biblioteca: o botão "Continuar" não vale mais
   saveCurrentTab();
   document.querySelectorAll('.nav-btn[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === (currentTab === 'sessao' ? 'meus-treinos' : currentTab)));
-  // Botão "Mais" do rodapé mobile: fica marcado como ativo quando a aba
-  // atual é uma das que moraram pra dentro do menu (histórico/exercícios).
-  const navMoreToggle = document.getElementById('btn-nav-more');
-  if (navMoreToggle) navMoreToggle.classList.toggle('active', ['historico', 'exercicios'].includes(currentTab));
-
   if (currentTab !== 'sessao') { clearSessaoTimers(); releaseWakeLock(); }
 
   switch (currentTab) {
@@ -590,7 +582,7 @@ function marcarEquipamentosVistos() {
 function openMontarNovo() {
   if (getTreinos().length === 0 && !equipamentosVistos()) {
     voltarParaMontar = true;
-    equipAberto = true;
+    subAbaExercicios = 'equipamentos';
     currentTab = 'exercicios';
     render();
     toast('Primeiro, marque os equipamentos da sua academia.');
@@ -599,14 +591,12 @@ function openMontarNovo() {
   draftTreino = { id: null, nome: '', exercicios: [] };
   musculosAlvoMontagem = new Set();
   buscaMontagem = '';
-  montarPickerAberto = false;   // <- nova
   openMontar();
 }
 function openMontarEditar(treino) {
   draftTreino = JSON.parse(JSON.stringify(treino));
   musculosAlvoMontagem = new Set();
   buscaMontagem = '';
-  montarPickerAberto = false;   // <- nova
   openMontar();
 }
 function openMontar() {
@@ -682,18 +672,17 @@ function closeAguaConfig() {
 // ================= EQUIPAMENTOS (seção dentro de Exercícios) =================
 let equipAberto = false; // a seção "Meus equipamentos" está expandida?
 
-function equipamentosSecaoHTML() {
+function renderEquipamentosAbaHTML() {
   const selected = new Set(getEquip());
   return `
-    ${voltarParaMontar ? `
-      <div class="actions-row">
-        <button id="btn-equip-continuar" class="btn btn-accent">Continuar e montar treino →</button>
-      </div>` : ''}
-    <details class="picker" id="equip-det" ${equipAberto ? 'open' : ''}>
-      <summary>${ICO_DUMBBELL}Meus equipamentos (<span id="equip-count">${selected.size} marcado(s)</span>)</summary>
-      <div class="picker-body">
-        <p class="hint">Marque o que você tem disponível na academia. Isso define quais exercícios aparecem pra montar treino.</p>
-        <div class="actions-row">
+    <div>
+      ${voltarParaMontar ? `
+        <div class="actions-row" style="margin-bottom: 16px;">
+          <button id="btn-equip-continuar" class="btn btn-accent">Continuar e montar treino →</button>
+        </div>` : ''}
+      <div class="picker-body" style="padding: 0;">
+        <p class="hint">Marque o que você tem disponível na sua academia:</p>
+        <div class="actions-row" style="margin: 12px 0;">
           <button id="btn-marcar-todos" class="btn btn-ghost btn-small">Marcar tudo</button>
           <button id="btn-desmarcar-todos" class="btn btn-ghost btn-small">Desmarcar tudo</button>
         </div>
@@ -704,18 +693,36 @@ function equipamentosSecaoHTML() {
               <span>${eq.nome}</span>
             </label>`).join('')}
         </div>
-        <p class="hint">Exercícios que usam só o peso do corpo continuam disponíveis mesmo sem marcar nada.</p>
+        <p class="hint" style="margin-top: 12px;">Exercícios que usam só o peso do corpo continuam disponíveis mesmo sem marcar nada.</p>
         <div id="equip-saved" class="saved-flag" hidden>Salvo ✓</div>
       </div>
-    </details>`;
+    </div>`;
+}
+
+function renderExerciciosAbaHTML() {
+  return `
+    <div class="lib-filters">
+      <input type="text" id="f-busca" placeholder="Buscar por nome..." value="${escapeHtml(filtroBusca)}"/>
+      <select id="f-musculo">
+        <option value="todos">Todos os músculos</option>
+        ${MUSCLES.map(m => `<option value="${m.id}" ${filtroMusculo === m.id ? 'selected' : ''}>${m.nome}</option>`).join('')}
+      </select>
+      <label class="lib-filter-check">
+        <input type="checkbox" id="f-disp" ${somenteDisponiveis ? 'checked' : ''}/>
+        <span>Só o que dá pra fazer com meus equipamentos</span>
+      </label>
+    </div>
+    <div class="exlist" id="exlist"></div>`;
 }
 
 function bindEquipamentos(aoMudar) {
   const det = document.getElementById('equip-det');
-  det.addEventListener('toggle', () => {
-    equipAberto = det.open;
-    if (det.open) marcarEquipamentosVistos();
-  });
+  if (det) {
+    det.addEventListener('toggle', () => {
+      equipAberto = det.open;
+      if (det.open) marcarEquipamentosVistos();
+    });
+  }
 
   APP.querySelectorAll('[data-equip]').forEach(input => {
     input.addEventListener('change', () => {
@@ -725,10 +732,12 @@ function bindEquipamentos(aoMudar) {
       const cont = document.getElementById('equip-count');
       if (cont) cont.textContent = `${set.size} marcado(s)`;
       const el = document.getElementById('equip-saved');
-      el.hidden = false;
-      clearTimeout(el._t);
-      el._t = setTimeout(() => { el.hidden = true; }, 1200);
-      aoMudar(); // atualiza a lista de exercícios filtrada por equipamento
+      if (el) {
+        el.hidden = false;
+        clearTimeout(el._t);
+        el._t = setTimeout(() => { el.hidden = true; }, 1200);
+      }
+      aoMudar();
     });
   });
 
@@ -741,12 +750,14 @@ function bindEquipamentos(aoMudar) {
     openMontarNovo();
   });
 
-  document.getElementById('btn-marcar-todos').addEventListener('click', () => {
+  const btnMarcar = document.getElementById('btn-marcar-todos');
+  if (btnMarcar) btnMarcar.addEventListener('click', () => {
     setEquip(EQUIPMENT.map(eq => eq.id));
     renderExercicios();
     toast('Todos marcados');
   });
-  document.getElementById('btn-desmarcar-todos').addEventListener('click', () => {
+  const btnDesmarcar = document.getElementById('btn-desmarcar-todos');
+  if (btnDesmarcar) btnDesmarcar.addEventListener('click', () => {
     setEquip([]);
     renderExercicios();
     toast('Todos desmarcados');
@@ -925,38 +936,56 @@ function importarDados(file) {
   reader.readAsText(file);
 }
 
-// ================= EXERCÍCIOS =================
+// ================= EXERCÍCIOS E EQUIPAMENTOS =================
 function renderExercicios() {
-  if (equipAberto) marcarEquipamentosVistos();
+  if (subAbaExercicios === 'equipamentos') marcarEquipamentosVistos();
+  const equipMarcados = getEquip();
+  const equipSet = new Set(equipMarcados);
+  const termoBusca = filtroBusca.trim().toLowerCase();
+  const quantidadeExercicios = allExercises().filter(ex =>
+    (filtroMusculo === 'todos' || ex.musculos.primarios.includes(filtroMusculo) || ex.musculos.secundarios.includes(filtroMusculo))
+    && (!somenteDisponiveis || exerciseAvailable(ex, equipSet))
+    && (!termoBusca || ex.nome.toLowerCase().includes(termoBusca))
+  ).length;
   APP.innerHTML = `
     <section class="panel">
       <div class="section-head">
-        <h1>Biblioteca de exercícios</h1>
-        <button id="btn-novo-exercicio-custom" class="btn btn-ghost btn-small" style="margin-top:0">+ Exercício personalizado</button>
+        <h1>Biblioteca</h1>
+        <button id="btn-novo-exercicio-custom" class="btn btn-ghost btn-small" style="margin-top:0; ${subAbaExercicios === 'equipamentos' ? 'visibility: hidden; pointer-events: none;' : ''}">+ Exercício</button>
       </div>
 
-      ${equipamentosSecaoHTML()}
-
-      <div class="filters-row">
-        <input type="text" id="f-busca" placeholder="Buscar por nome..." value="${escapeHtml(filtroBusca)}"/>
-        <select id="f-musculo">
-          <option value="todos">Todos os músculos</option>
-          ${MUSCLES.map(m => `<option value="${m.id}" ${filtroMusculo === m.id ? 'selected' : ''}>${m.nome}</option>`).join('')}
-        </select>
-        <label class="chk-inline">
-          <input type="checkbox" id="f-disp" ${somenteDisponiveis ? 'checked' : ''}/>
-          Só o que dá pra fazer com meus equipamentos
-        </label>
+      <div class="lib-tabs">
+        <button type="button" class="tab-btn ${subAbaExercicios === 'exercicios' ? 'active' : ''}" id="btn-sub-exercicios">Exercícios (${quantidadeExercicios})</button>
+        <button type="button" class="tab-btn ${subAbaExercicios === 'equipamentos' ? 'active' : ''}" id="btn-sub-equipamentos">Equipamentos${equipMarcados.length ? ` (${equipMarcados.length})` : ''}</button>
       </div>
-      <div class="exlist" id="exlist"></div>
+
+      ${subAbaExercicios === 'exercicios' && !equipMarcados.length ? `
+        <div class="info-block-msg lib-equipment-hint">
+          ℹ️ <strong>Marque seus equipamentos primeiro:</strong> na aba “Equipamentos”, escolha os aparelhos para filtrar os exercícios disponíveis.
+        </div>` : ''}
+
+      ${subAbaExercicios === 'equipamentos' ? renderEquipamentosAbaHTML() : renderExerciciosAbaHTML()}
     </section>`;
 
-  document.getElementById('f-busca').addEventListener('input', e => { filtroBusca = e.target.value; renderListaExercicios(); });
-  document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderListaExercicios(); });
-  document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderListaExercicios(); });
-  document.getElementById('btn-novo-exercicio-custom').addEventListener('click', openExercicioCustom);
-  bindEquipamentos(renderListaExercicios);
-  renderListaExercicios();
+  document.getElementById('btn-sub-exercicios').addEventListener('click', () => {
+    subAbaExercicios = 'exercicios';
+    renderExercicios();
+  });
+  document.getElementById('btn-sub-equipamentos').addEventListener('click', () => {
+    subAbaExercicios = 'equipamentos';
+    renderExercicios();
+  });
+
+  if (subAbaExercicios === 'equipamentos') {
+    bindEquipamentos(() => {});
+  } else {
+    const btnNovo = document.getElementById('btn-novo-exercicio-custom');
+    if (btnNovo) btnNovo.addEventListener('click', openExercicioCustom);
+    document.getElementById('f-busca').addEventListener('input', e => { filtroBusca = e.target.value; renderListaExercicios(); });
+    document.getElementById('f-musculo').addEventListener('change', e => { filtroMusculo = e.target.value; renderListaExercicios(); });
+    document.getElementById('f-disp').addEventListener('change', e => { somenteDisponiveis = e.target.checked; renderListaExercicios(); });
+    renderListaExercicios();
+  }
 }
 
 function renderListaExercicios() {
@@ -974,6 +1003,8 @@ function renderListaExercicios() {
   el.innerHTML = lista.length
     ? lista.map(ex => exCardHTML(ex, equipSet)).join('')
     : '<p class="empty">Nenhum exercício encontrado com esse filtro.</p>';
+  const tabExercicios = document.getElementById('btn-sub-exercicios');
+  if (tabExercicios) tabExercicios.textContent = `Exercícios (${lista.length})`;
 
   el.querySelectorAll('.ex-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -1005,17 +1036,21 @@ function exCardHTML(ex, equipSet) {
   const faltando = ex.equipamento.filter(id => !equipSet.has(id)).map(id => EQUIPMENT.find(e => e.id === id)?.nome);
   const aberto = exercicioAberto === ex.id;
   return `
-    <div class="ex-card ${disponivel ? '' : 'ex-indisponivel'} ${aberto ? 'ex-aberto' : ''}" data-id="${ex.id}">
-      <div class="ex-card-head">
-        <span class="ex-nome">${ex.nome}</span>
-        <span class="ex-card-head-right">
+    <div class="ex-card ex-card-row ${disponivel ? '' : 'ex-indisponivel'} ${aberto ? 'ex-aberto' : ''}" data-id="${ex.id}">
+      <div class="ex-card-summary">
+        <div class="ex-card-info">
+          <div class="ex-card-head">
+            <span class="ex-card-title">${escapeHtml(ex.nome)}</span>
+            <span class="ex-card-head-right">
           ${ex.personalizado ? '<span class="badge-custom">personalizado</span>' : ''}
           ${disponivel ? '' : '<span class="badge-off">falta equipamento</span>'}
-        </span>
-      </div>
-      <div class="chip-row">
-        ${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}
-        ${ex.musculos.secundarios.map(m => `<span class="chip chip-secondary">${muscleName(m)}</span>`).join('')}
+            </span>
+          </div>
+          <div class="ex-card-tags">
+            ${ex.musculos.primarios.map(m => `<span class="tag-subtle">${muscleName(m)}</span>`).join('')}
+          </div>
+        </div>
+        <span class="ex-card-chevron" aria-hidden="true">${aberto ? '⌄' : '›'}</span>
       </div>
       ${aberto ? `
         <div class="ex-detail">
@@ -1104,73 +1139,92 @@ function ensureDraftExercicioCustom() {
   if (!draftExercicioCustom) draftExercicioCustom = { nome: '', equipamento: [], primarios: [], secundarios: [] };
 }
 
+function resetModalCloseButton(mount, buttonId) {
+  const button = document.getElementById(buttonId);
+  const panel = mount.parentElement;
+  if (button && panel && button.parentElement !== panel) panel.insertBefore(button, mount);
+}
+
+function attachModalCloseButton(mount, buttonId) {
+  const button = document.getElementById(buttonId);
+  const header = mount.querySelector('.modal-header');
+  if (button && header) header.append(button);
+}
+
 function renderExercicioCustom() {
   ensureDraftExercicioCustom();
   const d = draftExercicioCustom;
 
+  resetModalCloseButton(EXERCICIO_CUSTOM_MOUNT, 'btn-close-exercicio-custom');
   EXERCICIO_CUSTOM_MOUNT.innerHTML = `
     <section>
-      <h1>Novo exercício personalizado</h1>
-      <p class="sub">Cadastre um exercício que não está na biblioteca fixa — por exemplo, uma máquina específica da sua academia.</p>
-
-      <div class="field-row">
-        <label>Nome do exercício</label>
-        <input id="custom-nome" type="text" placeholder="Ex.: Remada na máquina X" value="${escapeHtml(d.nome)}"/>
+      <div class="modal-header">
+        <h1>Novo exercício personalizado</h1>
       </div>
+      <div class="modal-body">
+        <p class="sub">Cadastre um exercício que não está na biblioteca fixa.</p>
 
-      <div class="field-row">
-        <label>Músculos primários (obrigatório escolher ao menos 1)</label>
-        <div class="equip-grid">
-          ${MUSCLES.map(m => `
-            <label class="equip-item">
+        <div class="field-row">
+          <input id="custom-nome" type="text" placeholder="Nome do exercício/aparelho" value="${escapeHtml(d.nome)}"/>
+        </div>
+
+        <div class="field-row">
+          <label>Músculos primários (obrigatório escolher ao menos 1)</label>
+          <div class="selectable-grid">
+            ${MUSCLES.map(m => `
+            <label class="selectable-card">
               <input type="checkbox" data-custom-primario="${m.id}" ${d.primarios.includes(m.id) ? 'checked' : ''}/>
               <span>${m.nome}</span>
             </label>`).join('')}
+          </div>
         </div>
-      </div>
 
-      <div class="field-row">
-        <label>Músculos secundários (opcional)</label>
-        <div class="equip-grid">
-          ${MUSCLES.map(m => `
-            <label class="equip-item">
+        <div class="field-row">
+          <label>Músculos secundários (opcional)</label>
+          <div class="selectable-grid">
+            ${MUSCLES.map(m => `
+            <label class="selectable-card">
               <input type="checkbox" data-custom-secundario="${m.id}" ${d.secundarios.includes(m.id) ? 'checked' : ''}/>
               <span>${m.nome}</span>
             </label>`).join('')}
+          </div>
         </div>
-      </div>
 
-      <div class="field-row">
-        <label>Equipamento necessário (deixe tudo desmarcado para "peso do corpo")</label>
-        <div class="equip-grid">
-          ${EQUIPMENT.map(eq => `
-            <label class="equip-item">
+        <div class="field-row">
+          <label>Equipamento necessário (deixe tudo desmarcado para "peso do corpo")</label>
+          <div class="selectable-grid">
+            ${EQUIPMENT.map(eq => `
+            <label class="selectable-card">
               <input type="checkbox" data-custom-equip="${eq.id}" ${d.equipamento.includes(eq.id) ? 'checked' : ''}/>
               <span>${eq.nome}</span>
             </label>`).join('')}
+          </div>
+        </div>
+
+        ${getCustomExercises().length ? `
+          <h2 class="subtitle">Seus exercícios personalizados</h2>
+          <div class="exlist">
+            ${getCustomExercises().map(ex => `
+              <div class="ex-card">
+                <div class="ex-card-head">
+                  <span class="ex-nome">${escapeHtml(ex.nome)}</span>
+                  <button class="btn-remove" data-del-custom-inline="${ex.id}" title="Excluir">✕</button>
+                </div>
+                <div class="chip-row">
+                  ${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}
+                  ${ex.musculos.secundarios.map(m => `<span class="chip chip-secondary">${muscleName(m)}</span>`).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <div class="actions-row">
+          <button id="btn-salvar-exercicio-custom" class="btn btn-accent">Salvar exercício</button>
         </div>
       </div>
-
-      <div class="actions-row">
-        <button id="btn-salvar-exercicio-custom" class="btn btn-accent">Salvar exercício</button>
-      </div>
-
-      ${getCustomExercises().length ? `
-        <h2 class="subtitle">Seus exercícios personalizados</h2>
-        <div class="exlist">
-          ${getCustomExercises().map(ex => `
-            <div class="ex-card">
-              <div class="ex-card-head">
-                <span class="ex-nome">${escapeHtml(ex.nome)}</span>
-                <button class="btn-remove" data-del-custom-inline="${ex.id}" title="Excluir">✕</button>
-              </div>
-              <div class="chip-row">
-                ${ex.musculos.primarios.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}
-                ${ex.musculos.secundarios.map(m => `<span class="chip chip-secondary">${muscleName(m)}</span>`).join('')}
-              </div>
-            </div>`).join('')}
-        </div>` : ''}
     </section>`;
+  attachModalCloseButton(EXERCICIO_CUSTOM_MOUNT, 'btn-close-exercicio-custom');
 
   document.getElementById('custom-nome').addEventListener('input', e => { d.nome = e.target.value; });
   EXERCICIO_CUSTOM_MOUNT.querySelectorAll('[data-custom-primario]').forEach(input => {
@@ -1224,7 +1278,6 @@ function salvarExercicioCustom() {
   closeExercicioCustom();
   if (viaMontar) {
     draftTreino.exercicios.push({ exercicioId: novo.id, series: 3, repeticoes: 10, peso: 0, pausa: 60 });
-    montarPickerAberto = false;
     renderMontarTreino();
     toast('Exercício criado e adicionado ao treino!');
     return;
@@ -1244,37 +1297,52 @@ function renderMontarTreino() {
   const musculos = unionMuscles(draftTreino.exercicios);
   const estimSec = estimateTreinoSeconds(draftTreino.exercicios);
   const total = draftTreino.exercicios.length;
+  const temNome = !!draftTreino.nome.trim();
 
+  resetModalCloseButton(MONTAR_MOUNT, 'btn-close-montar');
   MONTAR_MOUNT.innerHTML = `
     <section>
-      <h1>${draftTreino.id ? 'Editar treino' : 'Adicionar treino'}</h1>
-      <div class="field-row">
-        <input id="treino-nome" type="text" placeholder="Nome do treino" value="${escapeHtml(draftTreino.nome)}"/>
+      <div class="modal-header">
+        <h1>${draftTreino.id ? 'Editar treino' : 'Adicionar treino'}</h1>
       </div>
-
-      <div class="montar-sec-head">
-        <h2>Exercícios</h2>
-        <span class="montar-count">${total}</span>
-      </div>
-      <div class="draft-list">
-        ${total
-          ? draftTreino.exercicios.map((cfg, i, arr) => draftRowHTML(cfg, i, arr.length)).join('')
-          : '<p class="empty">Nenhum exercício adicionado ainda.</p>'}
-      </div>
-
-      <details class="picker" id="picker" ${montarPickerAberto ? 'open' : ''}>
-        <summary>${ICO_PLUS}Adicionar exercício</summary>
-        <div class="picker-body">
-          <div class="chip-filter">
-            ${MUSCLES.map(m => `<button type="button" class="chip-toggle ${musculosAlvoMontagem.has(m.id) ? 'active' : ''}" data-filtro-musculo="${m.id}">${m.nome}</button>`).join('')}
-          </div>
-          <input type="text" id="busca-montagem" placeholder="Buscar exercício por nome..." value="${escapeHtml(buscaMontagem)}"/>
-          <div class="picker-list" id="picker-list"></div>
-          <button type="button" id="btn-novo-exercicio-custom-montar" class="btn btn-ghost btn-small">+ Exercício personalizado</button>
+      <div class="modal-body">
+        <div class="field-row">
+          <label>Nome do treino <span class="req">*</span></label>
+          <input id="treino-nome" type="text" placeholder="Ex.: Treino A - Peito e Tríceps" value="${escapeHtml(draftTreino.nome)}"/>
         </div>
-      </details>
 
-      <div class="montar-footer">
+        <p class="hint refeicao-bloqueio info-block-msg" id="treino-bloqueio" ${temNome ? 'hidden' : ''}>
+          Digite o nome do treino acima para liberar os exercícios.
+        </p>
+
+        <div id="treino-exercicios-bloco" ${temNome ? '' : 'hidden'}>
+          <div class="montar-sec-head">
+            <h2>Exercícios no treino</h2>
+            <span class="montar-count">${total}</span>
+          </div>
+          <div class="draft-list">
+            ${total
+              ? draftTreino.exercicios.map((cfg, i, arr) => draftRowHTML(cfg, i, arr.length)).join('')
+              : '<p class="empty">Nenhum exercício adicionado ainda.</p>'}
+          </div>
+
+          <!-- Seletor de Exercícios Simplificado -->
+          <div class="muscle-add-box" style="margin-top:20px;">
+            <h2 style="font-size:15px; margin-bottom:10px;">+ Adicionar exercícios</h2>
+            <div class="filters-row" style="margin-bottom:10px;">
+              <input type="text" id="busca-montagem" placeholder="Buscar exercício por nome..." value="${escapeHtml(buscaMontagem)}"/>
+              <select id="filtro-musculo-montagem">
+                <option value="todos">Todos os músculos</option>
+                ${MUSCLES.map(m => `<option value="${m.id}" ${musculosAlvoMontagem.has(m.id) ? 'selected' : ''}>${m.nome}</option>`).join('')}
+              </select>
+            </div>
+            <div class="picker-list" id="picker-list"></div>
+            <button type="button" id="btn-novo-exercicio-custom-montar" class="btn btn-ghost btn-small" style="width:100%; margin-top:10px;">+ Criar exercício personalizado</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
         <div class="summary-bar summary-compact">
           <div>
             <span class="summary-label">Músculos no treino</span>
@@ -1291,20 +1359,28 @@ function renderMontarTreino() {
         </div>
       </div>
     </section>`;
+  attachModalCloseButton(MONTAR_MOUNT, 'btn-close-montar');
 
-  document.getElementById('treino-nome').addEventListener('input', e => { draftTreino.nome = e.target.value; });
+  document.getElementById('treino-nome').addEventListener('input', e => {
+    draftTreino.nome = e.target.value;
+    const temNome = !!draftTreino.nome.trim();
+    const bloco = document.getElementById('treino-exercicios-bloco');
+    const bloq = document.getElementById('treino-bloqueio');
+    if (bloco) bloco.hidden = !temNome;
+    if (bloq) bloq.hidden = temNome;
+  });
 
-  const picker = document.getElementById('picker');
-  picker.addEventListener('toggle', () => { montarPickerAberto = picker.open; });
-
-  MONTAR_MOUNT.querySelectorAll('[data-filtro-musculo]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.filtroMusculo;
-      if (musculosAlvoMontagem.has(id)) musculosAlvoMontagem.delete(id); else musculosAlvoMontagem.add(id);
-      btn.classList.toggle('active');
+  const selMusculo = document.getElementById('filtro-musculo-montagem');
+  if (selMusculo) {
+    selMusculo.addEventListener('change', e => {
+      musculosAlvoMontagem.clear();
+      if (e.target.value !== 'todos') {
+        musculosAlvoMontagem.add(e.target.value);
+      }
       renderPickerList();
     });
-  });
+  }
+
   document.getElementById('busca-montagem').addEventListener('input', e => {
     buscaMontagem = e.target.value;
     renderPickerList();
@@ -1373,17 +1449,22 @@ function renderPickerList() {
     ? opcoes.map(ex => `
         <button type="button" class="picker-item" data-add-ex="${ex.id}">
           <span class="picker-item-txt">
-            <span class="picker-item-name">${ex.nome}</span>
+            <span class="picker-item-name">${escapeHtml(ex.nome)}</span>
             <span class="picker-item-musc">${ex.musculos.primarios.map(m => muscleName(m)).join(', ')}</span>
           </span>
           ${ICO_PLUS}
         </button>`).join('')
-    : '<p class="empty">Nenhum exercício disponível com esse filtro e seus equipamentos.</p>';
+    : '<p class="empty">Nenhum exercício disponível com esse filtro.</p>';
 
   el.querySelectorAll('[data-add-ex]').forEach(btn => {
     btn.addEventListener('click', () => {
       draftTreino.exercicios.push({ exercicioId: btn.dataset.addEx, series: 3, repeticoes: 10, peso: 0, pausa: 60 });
       renderMontarTreino();
+
+      const pickerBox = document.querySelector('.muscle-add-box');
+      if (pickerBox) {
+        pickerBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     });
   });
 }
@@ -1451,11 +1532,20 @@ const ICO_CLOCK = _svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')
 const ICO_DROP = _svg('<path d="M12 2.5c2.8 3.6 7 9.4 7 13a7 7 0 1 1-14 0c0-3.6 4.2-9.4 7-13z"/>');
 const ICO_FOOD = _svg('<path d="M6 2v6a2 2 0 0 0 4 0V2"/><path d="M8 2v20"/><path d="M18 2c-2.2 0-3.5 2.5-3.5 6.5S15.8 15 18 15"/><path d="M18 2v20"/>');
 
+function emptyStateHTML({ icon, title, message }) {
+  return `
+    <div class="empty-state-card">
+      <div class="empty-state-ico">${icon}</div>
+      <strong class="empty-state-title">${escapeHtml(title)}</strong>
+      <p class="empty-state-msg">${escapeHtml(message)}</p>
+    </div>`;
+}
+
 function saudacao() {
   const h = new Date().getHours();
-  if (h < 12) return 'Bom dia';
-  if (h < 18) return 'Boa tarde';
-  return 'Boa noite';
+  if (h < 12) return 'Bom dia. Bora treinar?';
+  if (h < 18) return 'Boa tarde. Bora treinar?';
+  return 'Boa noite. Bora treinar?';
 }
 
 // Cartão do topo da home quando há treino em andamento.
@@ -1582,60 +1672,121 @@ function resumoSemanaHTML(treinos, hist, hoje) {
 
   const letras = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
   const nomes = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+  const metaTexto = metaManual > 0 ? `${metaManual}x/sem` : `Auto (${treinos.length}x)`;
+
   return `
     <div class="side-card home-semana">
-      <h2>Sua semana</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <h2>Sua semana</h2>
+        <button type="button" class="btn-icon" data-editar-meta-semana style="min-height:30px; padding:0 10px; font-size:12px; font-weight:600;" title="Alterar meta de dias">
+          ✏️ ${metaTexto}
+        </button>
+      </div>
       <div class="semana-titulo">${titulo}</div>
       ${barraProgressoHTML(Math.min(feitos, meta), meta, { fina: true, aria: 'Dias de treino da semana' })}
       <div class="semana-dias">
         ${dias.map((d, i) => `<span class="semana-dia ${treinou.has(d) ? 'feito' : ''} ${d === hoje ? 'hoje' : ''}" title="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}" aria-label="${nomes[i]}${treinou.has(d) ? ': treinou' : ''}">${letras[i]}</span>`).join('')}
       </div>
       <p class="hint semana-seq">${textoSeq}</p>
-      <label class="semana-meta-sel" style="display:block;margin-top:10px">
-        <span class="hint">Meta de dias na academia</span>
-        <select data-meta-semana>
-          <option value="0" ${metaManual === 0 ? 'selected' : ''}>Automático (${treinos.length} ${treinos.length === 1 ? 'treino montado' : 'treinos montados'})</option>
-          ${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${metaManual === n ? 'selected' : ''}>${n} ${n === 1 ? 'dia' : 'dias'} por semana</option>`).join('')}
-        </select>
-      </label>
     </div>`;
+}
+
+function openMetaSemanaModal() {
+  const metaAtual = getMetaSemana();
+  const modal = document.createElement('div');
+  const botaoAbrir = APP.querySelector('[data-editar-meta-semana]');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-meta-semana';
+  modal.setAttribute('role', 'presentation');
+  modal.innerHTML = `
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="titulo-meta-semana">
+      <div class="modal-header">
+        <h2 id="titulo-meta-semana">Meta de dias por semana</h2>
+        <button type="button" class="modal-close" id="close-meta-modal" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="hint" style="margin-bottom:16px;">Quantos dias na semana você pretende treinar?</p>
+        <div class="field-row">
+          <select id="sel-meta-semana-input" style="width:100%; min-height:48px; font-size:15px; font-weight:600;">
+            <option value="0" ${metaAtual === 0 ? 'selected' : ''}>Automático (conforme número de treinos)</option>
+            ${[1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${metaAtual === n ? 'selected' : ''}>${n} ${n === 1 ? 'dia' : 'dias'} por semana</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="actions-row">
+          <button type="button" id="btn-salvar-meta-semana" class="btn btn-accent">Salvar meta</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const fechar = () => {
+    modal.remove();
+    document.removeEventListener('keydown', fecharComEscape);
+    if (botaoAbrir && botaoAbrir.isConnected) botaoAbrir.focus();
+  };
+  const fecharComEscape = e => {
+    if (e.key === 'Escape') fechar();
+  };
+  modal.querySelector('#close-meta-modal').addEventListener('click', fechar);
+  modal.addEventListener('click', e => {
+    if (e.target === modal) fechar();
+  });
+  document.addEventListener('keydown', fecharComEscape);
+  modal.querySelector('#btn-salvar-meta-semana').addEventListener('click', () => {
+    const val = Number(modal.querySelector('#sel-meta-semana-input').value);
+    setMetaSemana(val);
+    fechar();
+    render();
+    toast('Meta da semana atualizada!');
+  });
+  modal.querySelector('#sel-meta-semana-input').focus();
 }
 
 function renderMeusTreinos() {
   const sessaoAtiva = getSessaoAtiva();
   const treinos = getTreinos();
   const hist = getHistorico();
-  const ultimaSessao = hist.slice().sort((a, b) => b.data.localeCompare(a.data))[0];
+  const ultimaSessao = hist
+    .filter(h => h && (h.treinoNome || h.nome))
+    .slice()
+    .sort((a, b) => {
+      const keyA = String(a.fimISO || a.dataHora || `${a.data || ''}${a.horario || ''}`);
+      const keyB = String(b.fimISO || b.dataHora || `${b.data || ''}${b.horario || ''}`);
+      if (keyA !== keyB) return keyB.localeCompare(keyA);
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
+    })[0];
+  const nomeUltimoTreino = ultimaSessao ? (ultimaSessao.treinoNome || ultimaSessao.nome) : '';
 
   const hoje = todayISO();
   const aguaHoje = totalAguaDia(hoje);
-  const metaAgua = getAguaConfig().metaMl;
-  const mlRapido = Number(getAguaConfig().ultimoMl) || 250; // atalho "+" usa o último valor registrado na aba Água
+  const configAgua = getAguaConfig();
+  const metaAgua = configAgua.metaMl;
+  const mlRapido = Number(configAgua.ultimoMl) || 250; // atalho "+" usa o último valor registrado na aba Água
   const refeicoesDoDia = getDieta().filter(r => r.data === hoje);
   const refeicoesHoje = refeicoesDoDia.length;
   const kcalHoje = calcTotaisRefeicoes(refeicoesDoDia).kcal;
   const metaKcal = Number(getMetaDieta().kcal) || 0;
   const fmtKcal = n => Math.round(n).toLocaleString('pt-BR');
-  const textoDietaHoje = !refeicoesHoje
-    ? 'Nenhuma refeição registrada'
-    : metaKcal > 0
-      ? `${fmtKcal(kcalHoje)} de ${fmtKcal(metaKcal)} kcal`
-      : `${fmtKcal(kcalHoje)} kcal · ${refeicoesHoje} refeição(ões)`;
-  const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
+  const textoAguaHoje = metaAgua > 0 ? `${aguaHoje} / ${metaAgua} ml` : `${aguaHoje} ml`;
+  const textoDietaHoje = metaKcal > 0
+    ? `${fmtKcal(kcalHoje)} / ${fmtKcal(metaKcal)} kcal`
+    : `${fmtKcal(kcalHoje)} kcal · ${refeicoesHoje} ref.`;
 
   APP.innerHTML = `
     <section class="panel panel-home">
       <div class="home-header">
-        <div>
-          <span class="home-date">${diaSemana}, ${formatDateBR(hoje)}</span>
-          <h1>${saudacao()}. Bora treinar?</h1>
-        </div>
+        <h1>${saudacao()} 👋</h1>
+        ${ultimaSessao ? `
+          <div class="last-workout-badge" title="Realizado em ${formatDateBR(ultimaSessao.data)}">
+            <span>Último:</span>
+            <strong>${escapeHtml(nomeUltimoTreino)}</strong>
+          </div>` : ''}
       </div>
 
       ${continuarTreinoHTML(sessaoAtiva)}
       ${avisoBackupHTML()}
-
-      ${ultimaSessao ? `<p class="hint home-ultimo">Último treino: <strong>${escapeHtml(ultimaSessao.treinoNome)}</strong> · ${formatDateBR(ultimaSessao.data)}</p>` : ''}
 
       ${resumoSemanaHTML(treinos, hist, hoje)}
 
@@ -1644,7 +1795,7 @@ function renderMeusTreinos() {
         <div class="today-rows">
           <div class="today-row">
             <span class="today-ico">${ICO_DROP}</span>
-            <div class="today-txt">Água<small>${aguaHoje > 0 ? `${aguaHoje} ml${metaAgua > 0 ? ` de ${metaAgua} ml` : ''}` : 'Nenhuma água registrada'}</small>${barraProgressoHTML(aguaHoje, metaAgua, { fina: true })}</div>
+            <div class="today-txt">Água<small>${textoAguaHoje}</small>${barraProgressoHTML(aguaHoje, metaAgua, { fina: true })}</div>
             <button class="today-btn" data-agua-quick aria-label="Registrar ${mlRapido} ml de água" title="+${mlRapido} ml">${ICO_PLUS}</button>
           </div>
           <div class="today-row">
@@ -1655,8 +1806,11 @@ function renderMeusTreinos() {
         </div>
       </div>
 
-      <div class="section-head"><h2>Meus treinos</h2></div>
-      <button class="btn btn-accent home-cta" data-montar>${ICO_PLUS}Adicionar treino</button>
+      <!-- Título e botão de adicionar alinhados na mesma linha -->
+      <div class="section-head" style="margin-top: 24px;">
+        <h2>Meus treinos</h2>
+        <button class="btn btn-ghost btn-small" data-montar style="margin:0">+ Adicionar treino</button>
+      </div>
 
       ${treinos.length ? `
         <div class="treino-grid">
@@ -1684,12 +1838,8 @@ function renderMeusTreinos() {
       if (currentTab === 'meus-treinos') render();
     });
   });
-  const selMetaSemana = APP.querySelector('[data-meta-semana]');
-  if (selMetaSemana) selMetaSemana.addEventListener('change', () => {
-    setMetaSemana(Number(selMetaSemana.value));
-    render();
-    toast('Meta da semana atualizada.');
-  });
+  const btnMetaSemana = APP.querySelector('[data-editar-meta-semana]');
+  if (btnMetaSemana) btnMetaSemana.addEventListener('click', openMetaSemanaModal);
   if (sessaoAtiva) iniciarTempoCartaoContinuar(sessaoAtiva);
   const btnContinuar = APP.querySelector('[data-continuar]');
   if (btnContinuar) btnContinuar.addEventListener('click', () => switchTab('sessao'));
@@ -1713,21 +1863,31 @@ function renderMeusTreinos() {
 }
 
 function treinoCardHTML(t) {
-  const musculos = unionMuscles(t.exercicios);
-  const estim = estimateTreinoSeconds(t.exercicios);
+  const exercicios = t.exercicios || [];
+  const musculos = unionMuscles(exercicios);
+  const estimSec = estimateTreinoSeconds(exercicios);
+  const qtdEx = exercicios.length;
   return `
     <div class="treino-card">
       <div class="treino-card-head">
-        <h3>${escapeHtml(t.nome)}</h3>
-        <span class="summary-value small">${formatDuration(estim)}</span>
+        <div class="treino-card-info">
+          <h3 class="treino-card-title">${escapeHtml(t.nome)}</h3>
+          <span class="treino-card-meta">${qtdEx} ${qtdEx === 1 ? 'exercício' : 'exercícios'} · ~${formatDuration(estimSec)}</span>
+        </div>
+        <div class="treino-card-actions-top">
+          <button type="button" class="btn-icon-subtle" data-edit="${t.id}" title="Editar treino" aria-label="Editar ${escapeHtml(t.nome)}">✏️</button>
+          <button type="button" class="btn-icon-subtle danger" data-del="${t.id}" title="Excluir treino" aria-label="Excluir ${escapeHtml(t.nome)}">🗑️</button>
+        </div>
       </div>
-      <div class="chip-row">${musculos.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
-      <p class="hint">${t.exercicios.length} exercício(s)</p>
-      <div class="icon-actions">
-        <button class="btn-icon act-start" data-start="${t.id}">${ICON_PLAY}Iniciar</button>
-        <button class="btn-icon" data-edit="${t.id}">${ICON_EDIT}Editar</button>
-        <button class="btn-icon act-danger" data-del="${t.id}">${ICON_TRASH}Excluir</button>
-      </div>
+
+      ${musculos.length ? `
+        <div class="chip-row">
+          ${musculos.map(m => `<span class="chip-subtle">${muscleName(m)}</span>`).join('')}
+        </div>` : ''}
+
+      <button type="button" class="btn-iniciar-treino" data-start="${t.id}">
+        <span>▶</span> Iniciar treino
+      </button>
     </div>`;
 }
 
@@ -2107,9 +2267,28 @@ function renderHistorico() {
     exercicioGraficoSelecionado = idsComHistorico[0];
   }
 
+  const totalTreinos = hist.length;
+  const totalSegundos = hist.reduce((acc, s) => acc + (s.duracaoSegundos || 0), 0);
+  const totalRecordes = hist.reduce((acc, s) => acc + (s.recordes ? s.recordes.length : 0), 0);
+
   APP.innerHTML = `
     <section class="panel">
       <h1>Histórico</h1>
+
+      <div class="stat-strip">
+        <div class="stat-card">
+          <span class="stat-label">Treinos totais</span>
+          <span class="stat-value">${totalTreinos}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Tempo total</span>
+          <span class="stat-value small">${formatDuration(totalSegundos)}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Recordes</span>
+          <span class="stat-value">${totalRecordes}</span>
+        </div>
+      </div>
 
       <div class="field-row">
         <label>Evolução de carga por exercício</label>
@@ -2119,10 +2298,10 @@ function renderHistorico() {
             : '<option>Sem dados ainda</option>'}
         </select>
       </div>
+      <div class="periodo-tabs" id="seg-periodo" role="group" aria-label="Período do gráfico">
+        ${PERIODOS_GRAFICO.map(p => `<button type="button" class="tab-btn ${graficoPeriodo === p.id ? 'active' : ''}" data-periodo="${p.id}">${p.label}</button>`).join('')}
+      </div>
       <div class="chart-toolbar">
-        <div class="segmented" id="seg-periodo" role="group" aria-label="Período do gráfico">
-          ${PERIODOS_GRAFICO.map(p => `<button type="button" class="seg-btn ${graficoPeriodo === p.id ? 'active' : ''}" data-periodo="${p.id}">${p.label}</button>`).join('')}
-        </div>
         <button type="button" id="btn-reset-zoom" class="btn-link" ${graficoZoom ? '' : 'hidden'}>↺ Ver período inteiro</button>
       </div>
       <div class="chart-box">
@@ -2133,7 +2312,7 @@ function renderHistorico() {
 
       <h2 class="subtitle">Sessões registradas</h2>
       ${hist.length ? '' : '<p class="empty">Nenhum treino salvo ainda. Finalize um treino em "Treino ativo".</p>'}
-      <div class="hist-list">${hist.map(s => histCardHTML(s)).join('')}</div>
+      <div class="hist-list sessoes-list">${hist.map(s => histCardHTML(s)).join('')}</div>
     </section>`;
 
   const sel = document.getElementById('sel-grafico');
@@ -2176,20 +2355,22 @@ function renderHistorico() {
 
 function histCardHTML(s) {
   const aberto = sessaoHistAberta === s.id;
+  const musculos = unionMuscles(s.exercicios || []);
+  const duracao = s.duracaoSegundos ? formatDuration(s.duracaoSegundos) : '--';
   return `
-    <div class="hist-card ${aberto ? 'ex-aberto' : ''}" data-hist-toggle="${s.id}">
-      <div class="hist-card-head">
-        <div><strong>${escapeHtml(s.treinoNome)}</strong><span class="hint"> — ${formatDateBR(s.data)}</span></div>
-        <div class="hist-card-meta">
-          ${s.recordes && s.recordes.length ? `<span class="badge-pr" title="Recordes de carga nesta sessão">🏆 ${s.recordes.length}</span>` : ''}
-          <span class="mono">${formatClock(s.duracaoSegundos)}</span>
-          <button class="btn-remove" data-del-hist="${s.id}" title="Excluir">✕</button>
+    <div class="sessao-card ${aberto ? 'ex-aberto' : ''}" data-hist-toggle="${s.id}">
+      <div class="sessao-card-head">
+        <div>
+          <h3 class="sessao-card-title">${escapeHtml(s.treinoNome || 'Treino')}</h3>
+          <span class="sessao-card-meta">${formatDateBR(s.data)} · ${duracao}</span>
         </div>
+        <button type="button" class="btn-icon-subtle danger" data-del-hist="${s.id}" title="Excluir registro" aria-label="Excluir registro">🗑️</button>
       </div>
-      <div class="chip-row">${s.musculos.map(m => `<span class="chip chip-primary">${muscleName(m)}</span>`).join('')}</div>
+      ${s.recordes && s.recordes.length ? `<span class="badge-pr" title="Recordes de carga nesta sessão">🏆 ${s.recordes.length}</span>` : ''}
+      ${musculos.length ? `<div class="chip-row">${musculos.map(m => `<span class="chip-subtle">${muscleName(m)}</span>`).join('')}</div>` : ''}
       ${aberto ? `
         <div class="draft-list">
-          ${s.exercicios.map(cfg => {
+          ${(s.exercicios || []).map(cfg => {
             const ex = exerciseById(cfg.exercicioId);
             const rec = (s.recordes || []).find(r => r.exercicioId === cfg.exercicioId);
             return `<div class="draft-row">
@@ -2541,42 +2722,59 @@ function copiarRefeicoesHTML() {
 function renderDieta() {
   const doDia = getDieta().filter(r => r.data === dietaData).sort((a, b) => a.horario.localeCompare(b.horario));
   const totais = calcTotaisRefeicoes(doDia);
-  const meta = getMetaDieta();
-  const temMeta = metaDefinida(meta);
+  const meta = getMetaDieta() || {};
 
   APP.innerHTML = `
     <section class="panel">
       <div class="section-head">
         <h1>Dieta</h1>
-        <button id="btn-editar-meta" class="btn btn-ghost btn-small" style="margin-top:0">${temMeta ? 'Editar meta' : 'Meta'}</button>
+        <button id="btn-editar-meta" class="btn btn-ghost btn-small" style="margin-top:0">Meta e macros</button>
       </div>
 
       <div class="date-nav">
-        <button id="btn-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
-        <input type="date" id="dieta-data-input" value="${dietaData}"/>
-        <button id="btn-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
-        <button id="btn-dia-hoje" class="btn btn-ghost btn-small" style="margin-top:0">Hoje</button>
+        <div class="date-picker-pill">
+          <button id="btn-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
+          <input type="date" id="dieta-data-input" value="${dietaData}"/>
+          <button id="btn-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
+        </div>
+        <button id="btn-dia-hoje" class="btn-hoje ${dietaData === todayISO() ? 'is-hoje' : ''}">Hoje</button>
       </div>
 
-      <div class="stat-strip stat-strip-4">
-        <div class="stat-card"><span class="stat-label">Calorias</span><span class="stat-value">${Math.round(totais.kcal)}</span></div>
-        <div class="stat-card"><span class="stat-label">Proteínas</span><span class="stat-value small">${totais.prot.toFixed(1)}g</span></div>
-        <div class="stat-card"><span class="stat-label">Carboidratos</span><span class="stat-value small">${totais.carb.toFixed(1)}g</span></div>
-        <div class="stat-card"><span class="stat-label">Gorduras</span><span class="stat-value small">${totais.gord.toFixed(1)}g</span></div>
-      </div>
+      <div class="card-metas-hoje">
+        <div class="card-metas-top">
+          <span class="card-metas-val">${Math.round(totais.kcal)} <small>kcal</small></span>
+          <span class="card-metas-badge">${meta.kcal > 0 ? Math.min(100, Math.round((totais.kcal / meta.kcal) * 100)) : 0}%</span>
+        </div>
 
-      ${temMeta ? `<div class="side-card meta-progresso">${metaProgressoHTML(totais, meta)}</div>` : ''}
+        <p class="card-metas-sub">
+          ${meta.kcal > 0
+            ? (totais.kcal >= meta.kcal ? 'Meta de calorias atingida! 🎉' : `Faltam ${Math.round(meta.kcal - totais.kcal)} kcal para a meta de ${Math.round(meta.kcal)} kcal`)
+            : 'Nenhuma meta definida.'}
+        </p>
+
+        ${barraProgressoHTML(totais.kcal, meta.kcal, { fina: true, aria: 'Calorias' })}
+
+        <div class="card-metas-macros">
+          <span>Prot: <strong>${totais.prot.toFixed(1)}g</strong></span>
+          <span>Carb: <strong>${totais.carb.toFixed(1)}g</strong></span>
+          <span>Gord: <strong>${totais.gord.toFixed(1)}g</strong></span>
+        </div>
+      </div>
 
       <div class="actions-row">
-        <button id="btn-nova-refeicao" class="btn btn-accent">+ Nova refeição</button>
+        <button id="btn-nova-refeicao" class="btn btn-accent">Adicionar refeição</button>
       </div>
 
       ${copiarRefeicoesHTML()}
 
-      <h2 class="subtitle">Refeições de ${formatDateBR(dietaData)}</h2>
+      <h2 class="subtitle">Refeições do dia</h2>
       ${doDia.length
         ? `<div class="hist-list">${doDia.map(r => refeicaoCardHTML(r)).join('')}</div>`
-        : '<p class="empty">Nenhuma refeição registrada nesse dia.</p>'}
+        : emptyStateHTML({
+            icon: ICO_FOOD,
+            title: 'Nenhuma refeição registrada',
+            message: 'Toque em "Adicionar refeição" para registrar seus alimentos hoje.'
+          })}
     </section>`;
 
   const irParaDia = data => {
@@ -2690,45 +2888,50 @@ function renderRefeicaoForm() {
     ? OPCOES_REFEICAO
     : [...OPCOES_REFEICAO, nomeAtual];
 
+  resetModalCloseButton(REFEICAO_MOUNT, 'btn-close-refeicao');
   REFEICAO_MOUNT.innerHTML = `
     <section>
-      <h1>${d.id ? 'Editar refeição' : 'Nova refeição'}</h1>
-
-      <div class="field-row-inline">
-        <label>Data<input type="date" id="refeicao-data" value="${d.data}"/></label>
-        <label>Horário<input type="time" id="refeicao-horario" value="${d.horario}"/></label>
+      <div class="modal-header">
+        <h1>${d.id ? 'Editar refeição' : 'Adicionar refeição'}</h1>
       </div>
-      <div class="field-row">
-        <label>Refeição <span class="req" title="Obrigatório">*</span> <span class="hint">(obrigatório)</span></label>
-        <div class="chip-filter" id="refeicao-tipo">
-          ${chipsNome.map(n => `<button type="button" class="chip-toggle ${nomeAtual === n ? 'active' : ''}" data-refeicao-tipo="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('')}
+      <div class="modal-body">
+
+        <div class="field-row-inline">
+          <label>Data<input type="date" id="refeicao-data" value="${d.data}"/></label>
+          <label>Horário<input type="time" id="refeicao-horario" value="${d.horario}"/></label>
         </div>
-      </div>
-
-      <p class="hint refeicao-bloqueio" id="refeicao-bloqueio" ${nomeAtual ? 'hidden' : ''}>
-        Escolha o tipo da refeição acima para liberar os ingredientes.
-      </p>
-
-      <div id="refeicao-ingredientes-bloco" ${nomeAtual ? '' : 'hidden'}>
-        <h2 class="subtitle">Ingredientes</h2>
-        <div class="muscle-add-box">
-          <input type="text" class="input-busca-musculo" id="busca-alimento" placeholder="Buscar alimento na Tabela TACO..." value="${escapeHtml(buscaAlimentoForm)}" autocomplete="off"/>
-          <div class="qtd-row">
-            <label class="qtd-label" for="qtd-alimento-g">Quantidade</label>
-            <div class="qtd-field">
-              <input type="number" id="qtd-alimento-g" min="1" step="1" value="100" inputmode="decimal"/>
-              <span>g</span>
-            </div>
-            <span class="hint qtd-hint">Toque num alimento para adicionar</span>
+        <div class="field-row">
+          <label>Refeição <span class="req" title="Obrigatório">*</span> <span class="hint">(obrigatório)</span></label>
+          <div class="chip-filter" id="refeicao-tipo">
+            ${chipsNome.map(n => `<button type="button" class="chip-toggle ${nomeAtual === n ? 'active' : ''}" data-refeicao-tipo="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('')}
           </div>
-          <div class="picker-list" id="alimento-list"></div>
-          <button id="btn-novo-alimento-custom" class="btn btn-ghost btn-small">+ Cadastrar alimento personalizado</button>
         </div>
 
-        <div class="draft-list" id="ingredientes-list"></div>
+        <p class="hint refeicao-bloqueio info-block-msg" id="refeicao-bloqueio" ${nomeAtual ? 'hidden' : ''}>
+          Escolha o tipo da refeição acima para liberar os ingredientes.
+        </p>
+
+        <div id="refeicao-ingredientes-bloco" ${nomeAtual ? '' : 'hidden'}>
+          <h2 class="subtitle">Ingredientes</h2>
+          <div class="muscle-add-box">
+            <input type="text" class="input-busca-musculo" id="busca-alimento" placeholder="Buscar alimento na Tabela TACO..." value="${escapeHtml(buscaAlimentoForm)}" autocomplete="off"/>
+            <div class="qtd-row">
+              <label class="qtd-label" for="qtd-alimento-g">Quantidade</label>
+              <div class="qtd-field">
+                <input type="number" id="qtd-alimento-g" min="1" step="1" value="100" inputmode="decimal"/>
+                <span>g</span>
+              </div>
+              <span class="hint qtd-hint">Toque num alimento para adicionar</span>
+            </div>
+            <div class="picker-list" id="alimento-list"></div>
+            <button id="btn-novo-alimento-custom" class="btn btn-ghost btn-small">+ Cadastrar alimento personalizado</button>
+          </div>
+
+          <div class="draft-list" id="ingredientes-list"></div>
+        </div>
       </div>
 
-      <div class="refeicao-footer">
+      <div class="modal-footer">
         <div class="refeicao-totais">
           <div><span class="summary-label">Calorias</span><div class="summary-value" id="ref-tot-kcal">0 kcal</div></div>
           <div><span class="summary-label">Prot.</span><div class="summary-value small" id="ref-tot-prot">0.0g</div></div>
@@ -2740,6 +2943,7 @@ function renderRefeicaoForm() {
         </div>
       </div>
     </section>`;
+  attachModalCloseButton(REFEICAO_MOUNT, 'btn-close-refeicao');
 
   document.getElementById('refeicao-data').addEventListener('input', e => { d.data = e.target.value; });
   document.getElementById('refeicao-horario').addEventListener('input', e => { d.horario = e.target.value; });
@@ -2954,38 +3158,47 @@ function salvarRefeicao() {
 // ---------- alimento personalizado (modal, aberto de dentro da refeição) ----------
 function renderAlimentoCustom() {
   const a = draftAlimentoCustom;
+  resetModalCloseButton(ALIMENTO_CUSTOM_MOUNT, 'btn-close-alimento-custom');
   ALIMENTO_CUSTOM_MOUNT.innerHTML = `
     <section>
-      <h1>Novo alimento personalizado</h1>
-      <p class="sub">Cadastre um alimento que não está na Tabela TACO, informando os valores nutricionais por 100g (rótulo da embalagem, por exemplo).</p>
+      <div class="modal-header">
+        <h1>Novo alimento personalizado</h1>
+      </div>
+      <div class="modal-body">
+        <p class="sub">Cadastre um alimento que não está na Tabela TACO, informando os valores nutricionais por 100g (rótulo da embalagem, por exemplo).</p>
 
-      <div class="field-row">
-        <label>Nome do alimento</label>
-        <input id="alimento-nome" type="text" placeholder="Ex.: Barra de proteína XYZ" value="${escapeHtml(a.nome)}"/>
-      </div>
-      <div class="draft-fields">
-        <label>Calorias (kcal/100g)<input type="number" min="0" step="1" id="alimento-kcal" value="${a.kcal}"/></label>
-        <label>Proteínas (g/100g)<input type="number" min="0" step="0.1" id="alimento-prot" value="${a.prot}"/></label>
-        <label>Carboidratos (g/100g)<input type="number" min="0" step="0.1" id="alimento-carb" value="${a.carb}"/></label>
-        <label>Gorduras (g/100g)<input type="number" min="0" step="0.1" id="alimento-gord" value="${a.gord}"/></label>
-      </div>
-      <div class="actions-row">
-        <button id="btn-salvar-alimento-custom" class="btn btn-accent">Salvar alimento</button>
-      </div>
+        <div class="field-row">
+          <label>Nome do alimento</label>
+          <input id="alimento-nome" type="text" placeholder="Ex.: Barra de proteína XYZ" value="${escapeHtml(a.nome)}"/>
+        </div>
+        <div class="draft-fields">
+          <label>Calorias (kcal/100g)<input type="number" min="0" step="1" id="alimento-kcal" value="${a.kcal}"/></label>
+          <label>Proteínas (g/100g)<input type="number" min="0" step="0.1" id="alimento-prot" value="${a.prot}"/></label>
+          <label>Carboidratos (g/100g)<input type="number" min="0" step="0.1" id="alimento-carb" value="${a.carb}"/></label>
+          <label>Gorduras (g/100g)<input type="number" min="0" step="0.1" id="alimento-gord" value="${a.gord}"/></label>
+        </div>
 
-      ${getCustomFoods().length ? `
-        <h2 class="subtitle">Seus alimentos personalizados</h2>
-        <div class="exlist">
-          ${getCustomFoods().map(f => `
-            <div class="ex-card">
-              <div class="ex-card-head">
-                <span class="ex-nome">${escapeHtml(f.nome)}</span>
-                <button class="btn-remove" data-del-alimento-custom="${f.id}" title="Excluir">✕</button>
+        ${getCustomFoods().length ? `
+          <h2 class="subtitle">Seus alimentos personalizados</h2>
+          <div class="exlist">
+            ${getCustomFoods().map(f => `
+              <div class="ex-card">
+                <div class="ex-card-head">
+                  <span class="ex-nome">${escapeHtml(f.nome)}</span>
+                  <button class="btn-remove" data-del-alimento-custom="${f.id}" title="Excluir">✕</button>
+                </div>
+                <p class="hint">${f.kcal} kcal · P ${f.prot}g · C ${f.carb}g · G ${f.gord}g (por 100g)</p>
               </div>
-              <p class="hint">${f.kcal} kcal · P ${f.prot}g · C ${f.carb}g · G ${f.gord}g (por 100g)</p>
-            </div>`).join('')}
-        </div>` : ''}
+            `).join('')}
+          </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <div class="actions-row">
+          <button id="btn-salvar-alimento-custom" class="btn btn-accent">Salvar alimento</button>
+        </div>
+      </div>
     </section>`;
+  attachModalCloseButton(ALIMENTO_CUSTOM_MOUNT, 'btn-close-alimento-custom');
 
   document.getElementById('alimento-nome').addEventListener('input', e => { a.nome = e.target.value; });
   document.getElementById('alimento-kcal').addEventListener('input', e => { a.kcal = Number(e.target.value) || 0; });
@@ -3024,23 +3237,28 @@ function salvarAlimentoCustom() {
 // ---------- meta de dieta (modal) ----------
 function renderMetaDietaForm() {
   const m = draftMetaDieta;
+  resetModalCloseButton(META_DIETA_MOUNT, 'btn-close-meta-dieta');
   META_DIETA_MOUNT.innerHTML = `
     <section>
-      <h1>Meta diária</h1>
-
-
-      <div class="draft-fields">
-        <label>Calorias (kcal/dia)<input type="number" min="0" step="1" id="meta-kcal" value="${m.kcal}"/></label>
-        <label>Proteínas (g/dia)<input type="number" min="0" step="1" id="meta-prot" value="${m.prot}"/></label>
-        <label>Carboidratos (g/dia)<input type="number" min="0" step="1" id="meta-carb" value="${m.carb}"/></label>
-        <label>Gorduras (g/dia)<input type="number" min="0" step="1" id="meta-gord" value="${m.gord}"/></label>
+      <div class="modal-header">
+        <h1>Meta diária</h1>
       </div>
-
-      <div class="actions-row">
-        <button id="btn-salvar-meta" class="btn btn-accent">Salvar meta</button>
-        ${metaDefinida(m) ? '<button id="btn-limpar-meta" class="btn btn-ghost">Remover meta</button>' : ''}
+      <div class="modal-body">
+        <div class="draft-fields">
+          <label>Calorias (kcal/dia)<input type="number" min="0" step="1" id="meta-kcal" value="${m.kcal}"/></label>
+          <label>Proteínas (g/dia)<input type="number" min="0" step="1" id="meta-prot" value="${m.prot}"/></label>
+          <label>Carboidratos (g/dia)<input type="number" min="0" step="1" id="meta-carb" value="${m.carb}"/></label>
+          <label>Gorduras (g/dia)<input type="number" min="0" step="1" id="meta-gord" value="${m.gord}"/></label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="actions-row">
+          <button id="btn-salvar-meta" class="btn btn-accent">Salvar meta</button>
+          ${metaDefinida(m) ? '<button id="btn-limpar-meta" class="btn btn-ghost">Remover meta</button>' : ''}
+        </div>
       </div>
     </section>`;
+  attachModalCloseButton(META_DIETA_MOUNT, 'btn-close-meta-dieta');
 
   document.getElementById('meta-kcal').addEventListener('input', e => { m.kcal = Number(e.target.value) || 0; });
   document.getElementById('meta-prot').addEventListener('input', e => { m.prot = Number(e.target.value) || 0; });
@@ -3127,7 +3345,7 @@ function renderAgua() {
   const total = doDia.reduce((s, r) => s + r.ml, 0);
   const temMeta = config.metaMl > 0;
   const pct = temMeta ? Math.max(0, Math.min(100, Math.round((total / config.metaMl) * 100))) : 0;
-  const estourou = temMeta && total > config.metaMl;
+  const restante = temMeta ? Math.max(0, config.metaMl - total) : 0;
 
   APP.innerHTML = `
     <section class="panel">
@@ -3137,20 +3355,25 @@ function renderAgua() {
       </div>
 
       <div class="date-nav">
-        <button id="btn-agua-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
-        <input type="date" id="agua-data-input" value="${aguaData}"/>
-        <button id="btn-agua-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
-        <button id="btn-agua-dia-hoje" class="btn btn-ghost btn-small" style="margin-top:0">Hoje</button>
+        <div class="date-picker-pill">
+          <button id="btn-agua-dia-anterior" class="btn-icon" title="Dia anterior">‹</button>
+          <input type="date" id="agua-data-input" value="${aguaData}"/>
+          <button id="btn-agua-dia-proximo" class="btn-icon" title="Próximo dia">›</button>
+        </div>
+        <button id="btn-agua-dia-hoje" class="btn-hoje ${aguaData === todayISO() ? 'is-hoje' : ''}">Hoje</button>
       </div>
 
-      <div class="agua-progress-block">
-        <div class="agua-progress-head">
-          <span class="agua-total">${total} <span class="hint">ml</span></span>
-          ${temMeta
-            ? `<span class="meta-row-value ${estourou ? 'over' : ''}">${pct}% da meta de ${config.metaMl} ml</span>`
-            : '<span class="hint">Nenhuma meta definida — toque em "Meta e lembretes".</span>'}
+      <div class="card-metas-hoje">
+        <div class="card-metas-top">
+          <span class="card-metas-val">${total} <small>ml</small></span>
+          <span class="card-metas-badge">${temMeta ? pct : 0}%</span>
         </div>
-        ${barraProgressoHTML(total, config.metaMl)}
+        <p class="card-metas-sub">
+          ${temMeta
+            ? (total >= config.metaMl ? 'Meta de água atingida! 🎉' : `Faltam ${restante} ml para a meta de ${config.metaMl} ml`)
+            : 'Nenhuma meta definida.'}
+        </p>
+        ${barraProgressoHTML(total, config.metaMl, { fina: true, aria: 'Progresso da meta de água' })}
       </div>
 
       <div class="chip-filter agua-chips" id="agua-chips">
@@ -3164,7 +3387,7 @@ function renderAgua() {
         <button id="btn-agua-add" class="btn btn-accent agua-add-btn">Adicionar</button>
       </div>
 
-      <h2 class="subtitle">Registros de ${formatDateBR(aguaData)}</h2>
+      <h2 class="subtitle">Registros do dia</h2>
       ${doDia.length ? `
         <div class="hist-list">
           ${doDia.map(r => `
@@ -3174,7 +3397,11 @@ function renderAgua() {
                 <button class="btn-remove" data-del-agua="${r.id}" title="Excluir">✕</button>
               </div>
             </div>`).join('')}
-        </div>` : '<p class="empty">Nenhum registro nesse dia ainda.</p>'}
+        </div>` : emptyStateHTML({
+          icon: ICO_DROP,
+          title: 'Nenhum registro de água',
+          message: 'Escolha uma quantidade acima e toque em "Adicionar".'
+        })}
     </section>`;
 
   document.getElementById('btn-agua-config').addEventListener('click', openAguaConfig);
@@ -3233,28 +3460,36 @@ function renderAguaConfigForm() {
   const c = draftAguaConfig;
   const suportaNotificacao = !!getLocalNotifications();
 
+  resetModalCloseButton(AGUA_CONFIG_MOUNT, 'btn-close-agua-config');
   AGUA_CONFIG_MOUNT.innerHTML = `
     <section>
-      <h1>Meta e lembretes de água</h1>
-
-      <div class="draft-fields">
-        <label>Meta diária (ml)<input type="number" min="0" step="50" id="agua-cfg-meta" value="${c.metaMl}"/></label>
-        <label>Acordar<input type="time" id="agua-cfg-acordar" value="${c.acordar}"/></label>
-        <label>Dormir<input type="time" id="agua-cfg-dormir" value="${c.dormir}"/></label>
-        <label>Lembrar a cada (min)<input type="number" min="15" step="5" id="agua-cfg-intervalo" value="${c.intervaloMin}"/></label>
+      <div class="modal-header">
+        <h1>Meta e lembretes de água</h1>
       </div>
-      <p class="hint">Os lembretes só disparam entre o horário de acordar e o de dormir — nada de notificação de madrugada.</p>
+      <div class="modal-body">
 
-      <h2 class="subtitle">Notificações</h2>
-      <label class="chk-inline">
-        <input type="checkbox" id="agua-cfg-notif" ${c.notificacoesAtivas ? 'checked' : ''} ${!suportaNotificacao ? 'disabled' : ''}/>
-        <span>Ativar lembretes por notificação</span>
-      </label>
+        <div class="draft-fields">
+          <label>Meta diária (ml)<input type="number" min="0" step="50" id="agua-cfg-meta" value="${c.metaMl}"/></label>
+          <label>Acordar<input type="time" id="agua-cfg-acordar" value="${c.acordar}"/></label>
+          <label>Dormir<input type="time" id="agua-cfg-dormir" value="${c.dormir}"/></label>
+          <label>Lembrar a cada (min)<input type="number" min="15" step="5" id="agua-cfg-intervalo" value="${c.intervaloMin}"/></label>
+        </div>
+        <p class="hint">Os lembretes só disparam entre o horário de acordar e o de dormir.</p>
 
-      <div class="actions-row">
-        <button id="btn-salvar-agua-cfg" class="btn btn-accent">Salvar</button>
+        <h2 class="subtitle">Notificações</h2>
+        <label class="chk-inline">
+          <input type="checkbox" id="agua-cfg-notif" ${c.notificacoesAtivas ? 'checked' : ''} ${!suportaNotificacao ? 'disabled' : ''}/>
+          <span>Ativar lembretes por notificação</span>
+        </label>
+      </div>
+
+      <div class="modal-footer">
+        <div class="actions-row">
+          <button id="btn-salvar-agua-cfg" class="btn btn-accent">Salvar</button>
+        </div>
       </div>
     </section>`;
+  attachModalCloseButton(AGUA_CONFIG_MOUNT, 'btn-close-agua-config');
 
   document.getElementById('agua-cfg-meta').addEventListener('input', e => { c.metaMl = Math.max(0, Number(e.target.value) || 0); });
   document.getElementById('agua-cfg-acordar').addEventListener('input', e => { c.acordar = e.target.value || c.acordar; });
@@ -3363,24 +3598,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-
-  // Menu "Mais" do rodapé mobile (Histórico / Equipamentos / Exercícios)
-  const btnNavMore = document.getElementById('btn-nav-more');
-  const navMoreMenu = document.getElementById('nav-more-menu');
-  if (btnNavMore && navMoreMenu) {
-    btnNavMore.addEventListener('click', e => {
-      e.stopPropagation();
-      navMoreMenu.hidden = !navMoreMenu.hidden;
-    });
-    navMoreMenu.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => { navMoreMenu.hidden = true; });
-    });
-    document.addEventListener('click', e => {
-      if (!navMoreMenu.hidden && !document.getElementById('nav-more').contains(e.target)) {
-        navMoreMenu.hidden = true;
-      }
-    });
-  }
 
   // tema claro/escuro: o <head> já aplicou o tema salvo (ou o do aparelho);
   // aqui sincronizamos a cor da barra do navegador, os ícones das barras
