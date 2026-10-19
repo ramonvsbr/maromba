@@ -23,9 +23,6 @@
 
 ---
 
-> [!NOTE]
-> O Maromba é **somente Android**. A versão web/PWA foi descontinuada.
-
 ## 📖 Sobre
 
 O **Maromba** é um app de treino de academia pensado para quem quer praticidade e privacidade. Ele funciona inteiramente no aparelho: não precisa de login, não envia nada para a nuvem e não depende de conexão.
@@ -205,23 +202,10 @@ maromba/
 | `@capacitor/share` | Backup (menu de compartilhar) |
 | `@capacitor/local-notifications` | Lembretes de água |
 
-### 🌿 Salvando no Git
-
-```powershell
-git add -A
-git commit -m "mensagem"
-git push
-```
-
-O `-A` registra também arquivos apagados. Se o `git add` reclamar de `Filename too long`, confira se o `.gitignore` ignora `node_modules/`, `www/` e os builds do Android, e rode:
 
 ```powershell
 git config --global core.longpaths true
 ```
-
-### 🏷️ Publicando uma versão
-
-Fazer `push` **não** gera release. Quando quiser disponibilizar um APK novo para download, crie um release na aba **Releases** do GitHub, anexando o `app-debug.apk` (ou o APK final).
 
 ## 🙏 Créditos
 
@@ -230,7 +214,5 @@ Fazer `push` **não** gera release. Quando quiser disponibilizar um APK novo par
 
 <div align="center">
 <br>
-
-**Feito para quem leva o treino a sério. 💪**
 
 </div>
